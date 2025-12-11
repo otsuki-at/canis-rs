@@ -1,0 +1,14 @@
+[package]
+name = "canis_rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+notify = { git = "https://github.com/otsuki-at/notify.git", rev="46d14fd3081cfc3727d0b8964a9b964a82b9e434"}
+chrono = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+directories-next = "2.0"
+sha2 = "0.10"
+anyhow = "1"
+hex = "0.4"
