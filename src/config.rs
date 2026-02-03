@@ -41,7 +41,7 @@ impl Config {
             ));
         }
 
-        if self.processor_level != 1 && self.processor_level != 3 {
+        if self.processor_level != 1 && self.processor_level != 2 && self.processor_level != 3 {
             return Err(WatcherError::ConfigError(
                 format!("未対応の処理レベル: L{}", self.processor_level)
             ));

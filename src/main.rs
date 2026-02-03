@@ -5,7 +5,6 @@ mod config;
 mod logger;
 mod event;
 mod observer;
-mod strategy;
 mod adapter;
 mod watcher;
 mod processor;
@@ -56,7 +55,6 @@ fn main() -> Result<()> {
 
     // 処理部: ProcessorObserverを作成
     let processor = processor::ProcessorObserver::new(
-        config.processor_level,
         Arc::clone(&logger)
     );
 
@@ -65,6 +63,7 @@ fn main() -> Result<()> {
 
     // 監視部にアダプターをObserverとして登録 (オブザーバパターン第1段階)
     watcher.attach(Box::new(adapter));
+
     watcher.start_watching(&config.watch_paths)?;
 
     Ok(())
