@@ -145,7 +145,7 @@ impl FileWatcher {
     }
 
     /// FUSE を使った監視の開始
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn start_fuse_watching(&self, paths: &[String]) -> Result<()> {
         use signal_hook::{consts::{SIGINT, SIGTERM}, iterator::Signals, flag};
         use std::path::PathBuf;
@@ -247,7 +247,7 @@ impl FileWatcher {
         for attempt in 1..=MAX_RETRIES {
             println!("マウント解除を試行中... (試行 {}/{})", attempt, MAX_RETRIES);
 
-            // fusermount -u を実行
+            // Linux: fusermount -u を実行
             match Command::new("fusermount")
                 .arg("-u")
                 .arg(mount_point)
@@ -299,10 +299,73 @@ impl FileWatcher {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    fn unmount_with_retry(mount_point: &Path) {
+        use std::process::Command;
+        use std::thread;
+        use std::time::Duration;
+
+        const MAX_RETRIES: u32 = 5;
+        const RETRY_DELAY_MS: u64 = 500;
+
+        for attempt in 1..=MAX_RETRIES {
+            println!("マウント解除を試行中... (試行 {}/{})", attempt, MAX_RETRIES);
+
+            // macOS: umount を実行
+            match Command::new("umount")
+                .arg(mount_point)
+                .output()
+            {
+                Ok(output) => {
+                    if output.status.success() {
+                        println!("マウント解除成功");
+                        return;
+                    } else {
+                        eprintln!("マウント解除失敗: {}",
+                                 String::from_utf8_lossy(&output.stderr));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("umount コマンド実行エラー: {}", e);
+                }
+            }
+
+            if attempt < MAX_RETRIES {
+                println!("{}ms 待機後、再試行します...", RETRY_DELAY_MS);
+                thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
+            }
+        }
+
+        // 最後の手段: umount -f (force unmount)
+        eprintln!("通常のアンマウントに失敗しました。強制アンマウント(force unmount)を試行します...");
+        match Command::new("umount")
+            .arg("-f")
+            .arg(mount_point)
+            .output()
+        {
+            Ok(output) => {
+                if output.status.success() {
+                    println!("強制アンマウント成功");
+                } else {
+                    eprintln!("強制アンマウント失敗: {}", 
+                             String::from_utf8_lossy(&output.stderr));
+                    eprintln!("警告: マウントが残っている可能性があります。");
+                    eprintln!("手動で 'sudo umount -f {}' を実行してください", 
+                             mount_point.display());
+                }
+            }
+            Err(e) => {
+                eprintln!("umount コマンド実行エラー: {}", e);
+                eprintln!("手動で 'sudo umount -f {}' を実行してください", 
+                         mount_point.display());
+            }
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     fn start_fuse_watching(&self, _paths: &[String]) -> Result<()> {
         Err(WatcherError::UnsupportedSystem(
-            "FUSE監視はLinuxでのみ利用可能です".to_string()
+            "FUSE監視はLinux/macOSで利用可能です".to_string()
         ))
     }
 }
@@ -323,41 +386,41 @@ impl Subject for FileWatcher {
 }
 
 // ============================================================================
-// FUSE 実装（Linux限定）- 完全版 + イベント通知
+// FUSE 実装（Unix限定）- 完全版 + イベント通知
 // ============================================================================
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use fuser::{
     Filesystem, KernelConfig, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory,
     ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite,
     ReplyXattr, Request, TimeOrNow, ReplyLseek, ReplyBmap, ReplyIoctl,
 };
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use libc::{c_int, EACCES, EINVAL, EIO, ENOENT, ENOSYS, ENOTEMPTY};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::collections::HashMap;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::ffi::OsStr;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::fs::{self, File, OpenOptions};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::io::{Read, Seek, SeekFrom, Write};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::ffi::OsStrExt;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::path::{Path, PathBuf};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::sync::Mutex;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const TTL: Duration = Duration::from_secs(1);
 
 /// Convert a system time to a tuple of (seconds, nanoseconds)
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn system_time_to_tuple(time: SystemTime) -> (i64, u32) {
     match time.duration_since(UNIX_EPOCH) {
         Ok(duration) => (duration.as_secs() as i64, duration.subsec_nanos()),
@@ -366,7 +429,7 @@ fn system_time_to_tuple(time: SystemTime) -> (i64, u32) {
 }
 
 /// Convert file metadata to FileAttr
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn metadata_to_attr(ino: u64, metadata: &fs::Metadata) -> fuser::FileAttr {
     let (atime_sec, atime_nsec) = system_time_to_tuple(
         metadata
@@ -411,13 +474,13 @@ fn metadata_to_attr(ino: u64, metadata: &fs::Metadata) -> fuser::FileAttr {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 struct InodeData {
     path: PathBuf,
     lookup_count: u64,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub struct PassthroughFS {
     root: PathBuf,
     inodes: Arc<Mutex<HashMap<u64, InodeData>>>,
@@ -429,7 +492,7 @@ pub struct PassthroughFS {
     observers: Arc<RwLock<Vec<Box<dyn Observer>>>>,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl PassthroughFS {
     pub fn new(root: PathBuf, observers: Arc<RwLock<Vec<Box<dyn Observer>>>>) -> Self {
         let mut inodes = HashMap::new();
@@ -522,7 +585,7 @@ impl PassthroughFS {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl Filesystem for PassthroughFS {
     fn init(
         &mut self,
@@ -867,7 +930,7 @@ impl Filesystem for PassthroughFS {
 
         let path = parent_path.join(name);
 
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         match std::os::unix::fs::symlink(link, &path) {
             Ok(_) => match fs::symlink_metadata(&path) {
                 Ok(metadata) => {

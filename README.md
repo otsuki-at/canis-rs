@@ -10,10 +10,10 @@ canis は以下の機能を提供している．
 # Requirements
 ## All Platforms
 - Python 3.x (optional, required only when using the MCP)
-- [libfuse3.14.0](https://github.com/libfuse/libfuse) (optional, required only when using the FUSE backend)
 
 ## Linux
 - systemd
+- [libfuse3.14.0](https://github.com/libfuse/libfuse) (optional, required only when using the FUSE backend)
 
 ## Windows
 - [WinSW 3.x](https://github.com/winsw/winsw)  
@@ -22,6 +22,7 @@ canis は以下の機能を提供している．
 
 ## macOS
 - launchd
+- [MacFUSE](https://github.com/macfuse/macfuse)
 
 # Getting Started
 canis は，バックグラウンドで動作してユーザのファイル操作を監視し，以下の項目からなる証跡を作成します．
