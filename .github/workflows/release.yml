@@ -47,11 +47,11 @@ jobs:
           mkdir -p dist
 
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "target/release/${NAME}.exe" \
-               "dist/${NAME}.exe"
+            cp "target/release/${NAME}.exe" "dist/${NAME}-windows.exe"
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            cp "target/release/${NAME}" "dist/${NAME}-macos"
           else
-            cp "target/release/${NAME}" \
-               "dist/${NAME}"
+            cp "target/release/${NAME}" "dist/${NAME}-linux"
           fi
 
       - name: Upload artifacts to GitHub Release
