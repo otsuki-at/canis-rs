@@ -9,6 +9,7 @@ jobs:
   build:
     name: Build and upload (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    contents: write
 
     strategy:
       matrix:
