@@ -33,7 +33,7 @@ canis は，バックグラウンドで動作してユーザのファイル操�
 
 以下に示す各コマンドの詳細については， Usage に記載しています．
 
-1. 利用するためには，まず `init` コマンドで設定ファイルを作成します．(Linuxの場合の設定ファイル配置場所: /home/<user>/.config/canis/config.toml)
+1. 利用するためには，まず `init` コマンドで設定ファイルを作成します．(Linuxの場合の設定ファイル配置場所: `/home/<user>/.config/canis/config.toml`)
 ```
 $ canis init
 ```
@@ -53,7 +53,7 @@ $ canis init
 ```
 $ canis start
 ```
-ユーザがファイルを操作すると，ハッシュを作成し，証跡をログファイルに保存します．(Linuxの場合のログファイル配置場所: /home/<user>/.local/share/canis/canis.log)
+ユーザがファイルを操作すると，ハッシュを作成し，証跡をログファイルに保存します．(Linuxの場合のログファイル配置場所: `/home/<user>/.local/share/canis/canis.log`)
 これによって，データが存在していた証拠を保存できます．
 作成される証跡は以下のような形式です．
 ```
