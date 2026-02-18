@@ -26,9 +26,13 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install FUSE (Linux only)
+      - name: Install FUSE (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y libfuse-dev
+
+      - name: Install macFUSE (macOS)
+        if: runner.os == 'macOS'
+        run: brew install --cask macfuse
 
       - name: Build (release)
         run: cargo build --release
