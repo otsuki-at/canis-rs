@@ -24,6 +24,10 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install FUSE (Linux only)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libfuse-dev
+
       - name: Build (release)
         run: cargo build --release
 
