@@ -1082,8 +1082,11 @@ impl Filesystem for PassthroughFS {
                 self.notify_event(event);
 
                 let mut open_flags = 0;
-                if flags & libc::O_DIRECT != 0 {
-                    open_flags |= fuser::consts::FOPEN_DIRECT_IO;
+                #[cfg(target_os = "linux")]
+                {
+                    if flags & libc::O_DIRECT != 0 {
+                        open_flags |= fuser::consts::FOPEN_DIRECT_IO;
+                    }
                 }
 
                 reply.opened(fh, open_flags);
@@ -1543,8 +1546,11 @@ impl Filesystem for PassthroughFS {
                         self.notify_event(event);
 
                         let mut open_flags = 0;
-                        if flags & libc::O_DIRECT != 0 {
-                            open_flags |= fuser::consts::FOPEN_DIRECT_IO;
+                        #[cfg(target_os = "linux")]
+                        {
+                            if flags & libc::O_DIRECT != 0 {
+                                open_flags |= fuser::consts::FOPEN_DIRECT_IO;
+                            }
                         }
 
                         reply.created(&TTL, &attr, 0, fh, open_flags);
