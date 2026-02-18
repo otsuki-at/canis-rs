@@ -2,6 +2,7 @@ use std::sync::{Arc, RwLock};
 use notify::{Watcher, RecursiveMode, Event, EventKind, RecommendedWatcher};
 use notify::event::{ModifyKind, RenameMode};
 use std::sync::mpsc::channel;
+use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::Utc;
 
 use crate::error::{Result, WatcherError};
@@ -146,6 +147,7 @@ impl FileWatcher {
     /// FUSE を使った監視の開始
     #[cfg(target_os = "linux")]
     fn start_fuse_watching(&self, paths: &[String]) -> Result<()> {
+        use signal_hook::{consts::{SIGINT, SIGTERM}, iterator::Signals, flag};
         use std::path::PathBuf;
 
         if paths.is_empty() {
@@ -154,7 +156,6 @@ impl FileWatcher {
             ));
         }
 
-        // FUSEは複数パスをサポートしないため、最初のパスのみ使用
         let original_path = PathBuf::from(&paths[0]);
         if !original_path.exists() {
             return Err(WatcherError::ConfigError(
@@ -168,11 +169,8 @@ impl FileWatcher {
         let parent_dir = original_path.parent()
             .ok_or_else(|| WatcherError::ConfigError("親ディレクトリが存在しません".to_string()))?;
 
-        /// 監視対象ディレクトリ名の変更
         let renamed_path = parent_dir.join(format!("{}.watch", original_name.to_string_lossy()));
         std::fs::rename(&original_path, &renamed_path)?;
-
-        /// マウントポイントを作成
         std::fs::create_dir_all(&original_path)?;
 
         println!("FUSE監視を開始します:");
@@ -180,40 +178,25 @@ impl FileWatcher {
         println!("  マウントポイント: {}", original_path.display());
         println!("  (アクセスは元のパス {} を通じて行ってください)\n", original_path.display());
 
-        // Ctrl+C ハンドラの設定
-        let mount_point_clone = original_path.clone();
-        let renamed_path_clone = renamed_path.clone();
+        // シグナルハンドラの設定
+        let running = Arc::new(AtomicBool::new(true));
+        let running_clone = Arc::clone(&running);
 
-        ctrlc::set_handler(move || {
-            println!("\n終了シグナルを受信しました。クリーンアップを開始します...");
+        // SIGINTとSIGTERMを監視
+        let mut signals = Signals::new(&[SIGINT, SIGTERM])
+            .expect("シグナルハンドラの初期化に失敗");
 
-            // 1. マウント解除
-            Self::unmount_with_retry(&mount_point_clone);
-
-            // 2. マウントポイント(空のディレクトリ)を削除
-            if let Err(e) = std::fs::remove_dir(&mount_point_clone) {
-                eprintln!("警告: マウントポイントの削除に失敗しました: {}", e);
+        // シグナル監視スレッド
+        std::thread::spawn(move || {
+            for sig in signals.forever() {
+                eprintln!("\nシグナル {} を受信しました", sig);
+                running_clone.store(false, Ordering::SeqCst);
+                break;
             }
+        });
 
-            // 3. リネームしたディレクトリを元の名前に戻す
-            if let Err(e) = std::fs::rename(&renamed_path_clone, &mount_point_clone) {
-                eprintln!("エラー: ディレクトリ名を元に戻せませんでした: {}", e);
-                eprintln!("手動で {} を {} にリネームしてください", 
-                         renamed_path_clone.display(), mount_point_clone.display());
-                std::process::exit(1);
-            }
-
-            println!("クリーンアップ完了。元の状態に復元しました。");
-            std::process::exit(0);
-        })
-        .map_err(|e| WatcherError::ConfigError(format!("シグナルハンドラ設定エラー: {}", e)))?;
-
-
-        // observersをcloneしてコールバックに渡す
         let observers = Arc::clone(&self.observers);
-
-        // PassthroughFSを作成
-        let fs = PassthroughFS::new(renamed_path, observers);
+        let fs = PassthroughFS::new(renamed_path.clone(), observers);
 
         // FUSEをマウント
         let _session = fuser::spawn_mount2(
@@ -224,10 +207,32 @@ impl FileWatcher {
 
         println!("FUSE監視中... Ctrl+C で終了\n");
 
-        // 無限ループで待機
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(1));
+        // メインループ - シグナルを受け取るまで待機
+        while running.load(Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
+
+        // ========== クリーンアップ処理 ==========
+        println!("\nクリーンアップを開始します...");
+
+        // 1. マウント解除
+        Self::unmount_with_retry(&original_path);
+
+        // 2. マウントポイント(空のディレクトリ)を削除
+        if let Err(e) = std::fs::remove_dir(&original_path) {
+            eprintln!("警告: マウントポイントの削除に失敗しました: {}", e);
+        }
+
+        // 3. リネームしたディレクトリを元の名前に戻す
+        if let Err(e) = std::fs::rename(&renamed_path, &original_path) {
+            eprintln!("エラー: ディレクトリ名を元に戻せませんでした: {}", e);
+            eprintln!("手動で {} を {} にリネームしてください", 
+                    renamed_path.display(), original_path.display());
+            std::process::exit(1);
+        }
+
+        println!("クリーンアップ完了。元の状態に復元しました。");
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]
@@ -253,7 +258,7 @@ impl FileWatcher {
                         println!("マウント解除成功");
                         return;
                     } else {
-                        eprintln!("マウント解除失敗: {}", 
+                        eprintln!("マウント解除失敗: {}",
                                  String::from_utf8_lossy(&output.stderr));
                     }
                 }
@@ -862,7 +867,7 @@ impl Filesystem for PassthroughFS {
 
         let path = parent_path.join(name);
 
-        #[cfg(unix)]
+        #[cfg(target_os = "linux")]
         match std::os::unix::fs::symlink(link, &path) {
             Ok(_) => match fs::symlink_metadata(&path) {
                 Ok(metadata) => {

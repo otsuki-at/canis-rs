@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use crate::error::{Result, WatcherError};
+use std::path::Path;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
@@ -10,6 +11,21 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn from_file(path: &Path) -> Result<Self> {
+        if !path.exists() {
+            return Err(WatcherError::ConfigError(
+                format!("設定ファイルが見つかりません: {}", path.display())
+            ));
+        }
+
+        let content = std::fs::read_to_string(path)?;
+        let config: Config = toml::from_str(&content)?;
+
+        config.validate()?;
+
+        Ok(config)
+    }
+
     pub fn from_xdg() -> Result<Self> {
         use directories_next::ProjectDirs;
 
@@ -28,9 +44,9 @@ impl Config {
 
         let content = std::fs::read_to_string(&config_path)?;
         let config: Config = toml::from_str(&content)?;
-        
+
         config.validate()?;
-        
+
         Ok(config)
     }
 

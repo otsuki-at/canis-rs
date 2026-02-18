@@ -7,6 +7,8 @@ pub enum WatcherError {
     IoError(std::io::Error),
     UnsupportedSystem(String),
     HashError(String),
+    // ★新しいバリアントを追加（anyhow::Error を扱う）
+    Other(String),
 }
 
 impl fmt::Display for WatcherError {
@@ -17,6 +19,7 @@ impl fmt::Display for WatcherError {
             Self::IoError(e) => write!(f, "I/Oエラー: {}", e),
             Self::UnsupportedSystem(s) => write!(f, "未対応システム: {}", s),
             Self::HashError(s) => write!(f, "ハッシュ計算エラー: {}", s),
+            Self::Other(s) => write!(f, "エラー: {}", s),  // ★追加
         }
     }
 }
@@ -38,6 +41,13 @@ impl From<std::io::Error> for WatcherError {
 impl From<toml::de::Error> for WatcherError {
     fn from(err: toml::de::Error) -> Self {
         Self::ConfigError(format!("TOML解析エラー: {}", err))
+    }
+}
+
+// ★anyhow::Error からの変換を追加
+impl From<anyhow::Error> for WatcherError {
+    fn from(err: anyhow::Error) -> Self {
+        Self::Other(err.to_string())
     }
 }
 
