@@ -24,7 +24,7 @@ canis は以下の機能を提供している．
 - launchd
 - [MacFUSE](https://github.com/macfuse/macfuse)
 
-# Getting Started
+# Quick start
 canis は，バックグラウンドで動作してユーザのファイル操作を監視し，以下の項目からなる証跡を作成します．
 - 操作時刻
 - ハッシュ値
@@ -33,20 +33,16 @@ canis は，バックグラウンドで動作してユーザのファイル操�
 
 以下に示す各コマンドの詳細については， Usage に記載しています．
 
-1. 利用するためには，まず `init` コマンドで設定ファイルを作成します．
+1. 利用するためには，まず `init` コマンドで設定ファイルを作成します．(Linuxの場合の設定ファイル配置場所: /home/<user>/.config/canis/config.toml)
 ```
 $ canis init
 ```
 以下のような設定ファイルが作成されます．
 ```
   watcher_system = "notify"
-
   processor_level = 2
-
   watch_paths = ["/path/of/watch/"]
-
   log_file = "/path/of/canis.log"
-
   dailyhash_repository="/path/of/git/repository"
 ```
 
@@ -57,7 +53,7 @@ $ canis init
 ```
 $ canis start
 ```
-ユーザがファイルを操作すると，ハッシュを作成し，証跡をログファイルに保存します．
+ユーザがファイルを操作すると，ハッシュを作成し，証跡をログファイルに保存します．(Linuxの場合のログファイル配置場所: /home/<user>/.local/share/canis/canis.log)
 これによって，データが存在していた証拠を保存できます．
 作成される証跡は以下のような形式です．
 ```
@@ -101,7 +97,8 @@ $ canis start
   dailyhash_repository="/path/of/git/repository"
   ```
 
-## Upload daily hash
+## 証跡公開先リポジトリの準備
+証跡の外部公開先となるGit リポジトリを作成します．
 1. 日次ハッシュ公開先として利用する Git リポジトリを作成する．
 2. 作成した Git リポジトリをローカルに Clone する．ここでは，daily-hashというリポジトリを例に示す．
   ```
@@ -109,6 +106,7 @@ $ canis start
   ```
 
 ## Model Context Protocol
+canis が収集した情報をAIにまとめさせたい場合には，以下の設定をするとよいでしょう．
 - Configuration for Claude.app
 ```json
 {
@@ -168,22 +166,29 @@ systemctl --user start canis-start.service
 ```
 
 ### Windows
-1. [WinSW 3.x](https://github.com/winsw/winsw) をダウンロードし，以下のディレクトリに移動　
+1. WinSW 3.x をインストールしてください  
+https://github.com/winsw/winsw  
+以下のコマンドでヘルプが表示されればインストールできています．
 ```
-C:\Users\user\AppData\Local\winsw\
+WinSW-x64.exe -h
 ```
 
 2. 自動起動設定用のファイルを作成する
 ```
 $ .\canis.exe init -s
 ```
+`C:\Users\user\AppData\Local\winsw\` に `canis-start.xml` ができているのを確認してください．
 
 3. 作成された xml ファイルの password 欄にパスワードを入力する
 
-4. canis start をサービスとして登録し，開始する
+3. canis start をサービスとして登録します
 ```
-$ .\WinSW-x64.exe install .\canis-start.xml
-$ .\WinSW-x64.exe start .\canis-start.xml
+$ WinSW-x64.exe install C:\Users\user\AppData\Local\winsw\canis-start.xml
+```
+
+4. canis start のサービスを実行します
+```
+$ WinSW-x64.exe start C:\Users\user\AppData\Local\winsw\canis-start.xml
 ```
 
 ### MacOS
