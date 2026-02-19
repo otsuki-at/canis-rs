@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         os:
-          - ubuntu-latest
+          - ubuntu-22.04
           - windows-latest
           - macos-latest
 
@@ -43,15 +43,22 @@ jobs:
           set -e
 
           NAME="canis"
+          VERSION="${{ github.ref_name }}"
 
           mkdir -p dist
 
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64)          ARCH="x64" ;;
+            aarch64 | arm64) ARCH="arm64" ;;
+          esac
+
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "target/release/${NAME}.exe" "dist/${NAME}-windows.exe"
+            cp "target/release/${NAME}.exe" "dist/${NAME}-windows-${ARCH}-${VERSION}.exe"
           elif [ "${{ runner.os }}" = "macOS" ]; then
-            cp "target/release/${NAME}" "dist/${NAME}-macos"
+            cp "target/release/${NAME}" "dist/${NAME}-macos-${ARCH}-${VERSION}"
           else
-            cp "target/release/${NAME}" "dist/${NAME}-linux"
+            cp "target/release/${NAME}" "dist/${NAME}-linux-${ARCH}-${VERSION}"
           fi
 
       - name: Upload artifacts to GitHub Release
