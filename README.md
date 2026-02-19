@@ -175,7 +175,7 @@ WinSW-x64.exe -h
 
 2. 自動起動設定用のファイルを作成する
 ```
-$ .\canis.exe init -s
+$ canis.exe init -s
 ```
 `C:\Users\user\AppData\Local\winsw\` に `canis-start.xml` ができているのを確認してください．
 
