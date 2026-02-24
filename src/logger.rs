@@ -37,7 +37,7 @@ impl FileLogger {
     /// 大容量ファイルに対応するため、バッファリングしながら逆順に読み取る
     fn find_hash_reverse(&self, target_path: &str) -> Result<Option<String>> {
         let mut file = std::fs::File::open(&self.path)?;
-        
+
         // ファイルサイズを取得
         let file_size = file.metadata()?.len();
         if file_size == 0 {

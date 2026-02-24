@@ -24,12 +24,13 @@ pub fn start(args: StartArgs) -> Result<()>{
         Config::from_xdg()?
     };
 
-    println!("\n--- 設定内容 ---");
-    println!("監視システム: {}", config.watcher_system);
-    println!("処理レベル: L{}", config.processor_level);
-    println!("監視パス数: {}", config.watch_paths.len());
+    let settings = &config.basic_settings;
 
-    let logger: Arc<dyn Logger> = match &config.log_file {
+    println!("\n--- 設定内容 ---");
+    println!("監視システム: {}", settings.watcher);
+    println!("監視パス数: {}", settings.targets.len());
+
+    let logger: Arc<dyn Logger> = match &settings.logfile {
         Some(path) => {
             println!("ログファイル: {} (設定ファイルで指定)", path);
             Arc::new(FileLogger::new(path)?)
@@ -63,11 +64,17 @@ pub fn start(args: StartArgs) -> Result<()>{
             "デーモン化は Unix/Linux/macOS でのみサポートされています。\n"
         );
     }
-    let mut watcher = watcher::FileWatcher::new(&config.watcher_system)?;
+    let mut watcher = watcher::FileWatcher::new(&settings.watcher)?;
+
+    let processor_level = match settings.watcher.as_str() {
+        "notify" => 1,
+        "fuse"   => 3,
+        _        => 1,
+    };
 
     // 中間層: EventAdapterを作成
     let mut adapter = adapter::EventAdapter::new(
-        config.processor_level,
+        processor_level,
     );
 
     // 処理部: ProcessorObserverを作成
@@ -81,7 +88,7 @@ pub fn start(args: StartArgs) -> Result<()>{
     // 監視部にアダプターをObserverとして登録 (オブザーバパターン第1段階)
     watcher.attach(Box::new(adapter));
 
-    watcher.start_watching(&config.watch_paths)?;
+    watcher.start_watching(&settings.targets)?;
 
     Ok(())
 }

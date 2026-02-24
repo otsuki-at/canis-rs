@@ -3,11 +3,16 @@ use crate::error::{Result, WatcherError};
 use std::path::Path;
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct BasicSettings {
+    pub watcher: String,
+    pub targets: Vec<String>,
+    pub logfile: Option<String>,
+    pub hashdir: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct Config {
-    pub watcher_system: String,
-    pub processor_level: u8,
-    pub watch_paths: Vec<String>,
-    pub log_file: Option<String>,
+    pub basic_settings: BasicSettings,
 }
 
 impl Config {
@@ -51,15 +56,9 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
-        if self.watch_paths.is_empty() {
+        if self.basic_settings.targets.is_empty() {
             return Err(WatcherError::ConfigError(
                 "監視パスが指定されていません".to_string()
-            ));
-        }
-
-        if self.processor_level != 1 && self.processor_level != 2 && self.processor_level != 3 {
-            return Err(WatcherError::ConfigError(
-                format!("未対応の処理レベル: L{}", self.processor_level)
             ));
         }
 

@@ -39,19 +39,11 @@ fn init_config() -> Result<()>{
     fs::create_dir_all(proj_dirs.config_dir())?;
 
     let config_content = r#"
-watcher_system = "notify"
-processor_level = 2
-
-# 監視するディレクトリのパス
-watch_paths = [
-    "/path/to/watch",
-]
-
-# ログファイルのパス(オプション)
-log_file = "/path/to/canis.log"
-
-# 日次ハッシュ公開用リポジトリのパス(オプション)
-dailyhash_repository="/path/of/git/repository"
+[basic_settings]
+watcher = "notify"
+watchdirs = ["/watch/path/1","/watch/path/2/"]
+logfile = "/path/to/logfile"
+hashdir = "/path/to/local/gitrepository/"
 "#;
 
     fs::write(&config_path, config_content)?;

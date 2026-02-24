@@ -35,8 +35,8 @@ fn main() -> Result<()> {
                 println!("InfoCommand is not implemented");
             }
         },
-        Commands::Publish =>{
-            println!("PublishCommand is not implemented");
+        Commands::Publish(args) =>{
+            commands::publish::publish(args)?;
         },
     }
 

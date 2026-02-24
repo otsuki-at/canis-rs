@@ -21,7 +21,7 @@ pub enum Commands {
     /// Display digest about file
     Info(InfoArgs),
     /// Publish daily hash
-    Publish,
+    Publish(PublishArgs),
 }
 
 #[derive(Args)]
@@ -60,4 +60,11 @@ pub struct InfoArgs {
     /// Generate log about file
     #[arg(short = 'l', long = "log")]
     pub log: bool,
+}
+
+#[derive(Args)]
+pub struct PublishArgs {
+    /// Specify config file
+    #[arg(short = 'c', long = "config")]
+    pub config: Option<PathBuf>,
 }
