@@ -1,11 +1,9 @@
-use std::sync::Arc;
 use anyhow::Result;
 use std::fs;
 use std::path::PathBuf;
-use dialoguer::{Input, Confirm, Select};
+use dialoguer::{Input, Confirm};
 
-use crate::config::Config;
-use crate::logger::{self, Logger, FileLogger};
+use crate::logger::{self};
 use crate::error::WatcherError;
 use crate::cli::InitArgs;
 
@@ -17,7 +15,6 @@ struct InitConfig {
 }
 
 pub fn init(args: InitArgs) -> Result<()>{
-
     let config = init_config(&args)?;
 
     // start 用のファイル作成関数呼び出し
@@ -41,8 +38,6 @@ pub fn init(args: InitArgs) -> Result<()>{
 }
 
 fn init_config(args: &InitArgs) -> Result<InitConfig>{
-    use directories_next::ProjectDirs;
-
     // 設定ファイルのパスを取得
     let config_path = match &args.config {
         Some(w) => w.clone(),

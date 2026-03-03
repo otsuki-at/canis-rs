@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 use notify::{Watcher, RecursiveMode, Event, EventKind, RecommendedWatcher};
-use notify::event::{ModifyKind, RenameMode};
+use notify::event::{ModifyKind};
 use std::sync::mpsc::channel;
 use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::Utc;
@@ -135,7 +135,7 @@ impl FileWatcher {
     /// FUSE を使った監視の開始
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn start_fuse_watching(&self, paths: &[String]) -> Result<()> {
-        use signal_hook::{consts::{SIGINT, SIGTERM}, iterator::Signals, flag};
+        use signal_hook::{consts::{SIGINT, SIGTERM}, iterator::Signals};
         use std::path::PathBuf;
 
         if paths.is_empty() {

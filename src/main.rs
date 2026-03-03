@@ -11,7 +11,7 @@ mod cli;
 
 use error::Result;
 use cli::{Cli, Commands};
-use clap::{Parser, Subcommand, Args, ArgGroup};
+use clap::{Parser};
 
 fn main() -> Result<()> {
 
