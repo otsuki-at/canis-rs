@@ -26,13 +26,43 @@ pub enum Commands {
 
 #[derive(Args)]
 pub struct InitArgs {
-    /// Generate only config file
+    /// Path to configuration file
     #[arg(short = 'c', long = "config")]
-    pub config: bool,
+    pub config: Option<PathBuf>,
 
-    /// Generate only service file for monitoring (canis start)
+    /// File system watcher backend to use
+    #[arg(long)]
+    pub watcher: Option<String>,
+
+    /// Paths to watch for operation
+    #[arg(long = "targets", value_delimiter = ',')]
+    pub targets: Option<Vec<PathBuf>>,
+
+    /// Path to log file for digest
+    #[arg(long)]
+    pub logfile: Option<PathBuf>,
+
+    /// Local git repository path for hash storage and publication
+    #[arg(long)]
+    pub hashdir: Option<PathBuf>,
+
+    /// Path to daemon stdout log file
+    #[cfg(target_os = "macos")]
+    #[arg(long)]
+    pub daemon_out: Option<PathBuf>,
+
+    /// Path to daemon stderr log file
+    #[cfg(target_os = "macos")]
+    #[arg(long)]
+    pub daemon_err: Option<PathBuf>,
+
+    /// Generate service file for monitoring (canis start)
     #[arg(short = 's', long = "start")]
-    pub start: bool,
+    pub start: Option<PathBuf>,
+
+    /// Path to canis binary file
+    #[arg(short = 'b', long = "binary")]
+    pub binary: Option<PathBuf>,
 
     /// Generate only service file for daily publishing (canis publish)
     #[arg(short = 'p', long = "publish")]

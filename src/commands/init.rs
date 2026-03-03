@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use anyhow::Result;
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
+use dialoguer::{Input, Confirm, Select};
 
 use crate::config::Config;
 use crate::logger::{self, Logger, FileLogger};
@@ -11,50 +11,174 @@ use crate::cli::InitArgs;
 
 use directories_next::ProjectDirs;
 
-pub fn init(args: InitArgs) -> Result<()>{
-    let all = !args.config && !args.start && !args.publish;
+struct InitConfig {
+    config_path: PathBuf,
+    binary_path: Option<PathBuf>,
+}
 
-    if args.config || all  {
-        init_config()?;
+pub fn init(args: InitArgs) -> Result<()>{
+
+    let config = init_config(&args)?;
+
+    // start 用のファイル作成関数呼び出し
+    if args.start.is_some() {
+        let _config = init_start(&args, &config)?;
+        return Ok(());
     }
-    if args.start || all {
-        init_start();
+    else{
+        if Confirm::new()
+            .with_prompt("Do you want to create unit file for canis start?")
+            .interact()
+            .unwrap()
+            {
+                let _config = init_start(&args, &config)?;
+            }
+
     }
-    if args.publish || all {
-        init_publish();
-    }
+    // init_publish();
+
     Ok(())
 }
 
-fn init_config() -> Result<()>{
+fn init_config(args: &InitArgs) -> Result<InitConfig>{
     use directories_next::ProjectDirs;
 
-    let proj_dirs = ProjectDirs::from("", "", "canis")
-        .ok_or_else(|| WatcherError::ConfigError(
-            "XDG設定ディレクトリを取得できませんでした".to_string()
-        ))?;
+    // 設定ファイルのパスを取得
+    let config_path = match &args.config {
+        Some(w) => w.clone(),
+        None => {
+            let proj_dirs = ProjectDirs::from("", "", "canis")
+                .ok_or_else(|| WatcherError::ConfigError(
+                    "Failed to retrieve XDG configuration directory".to_string()
+                ))?;
 
-    let config_path = proj_dirs.config_dir().join("config.toml");
+            let default_path_str = proj_dirs
+                .config_dir()
+                .join("config.toml")
+                .to_string_lossy()
+                .to_string();
 
-    fs::create_dir_all(proj_dirs.config_dir())?;
+            PathBuf::from(
+                Input::new()
+                    .with_prompt("Enter config file path")
+                    .default(default_path_str)
+                    .interact_text()?
+            )
+        }
+    };
 
-    let config_content = r#"
+    if config_path.exists() {
+        println!("{} already exists\n", config_path.display());
+        return Ok(InitConfig {
+                    config_path,
+                    binary_path: None,
+                })
+    }
+
+    let watcher = match &args.watcher {
+        Some(w) => w.clone(),
+        None => Input::new()
+            .with_prompt("Enter watcher implementation")
+            .default("notify".to_string())
+            .interact_text()?
+    };
+
+    // 監視対象パスを取得
+    let watch_paths: Vec<PathBuf> = match &args.targets {
+        Some(targets) if !targets.is_empty() => targets.clone(),
+        _ => {
+            let mut paths = Vec::new();
+
+            loop {
+                let path: String = Input::new()
+                    .with_prompt(format!("Enter target path #{}", paths.len() + 1))
+                    .allow_empty(true)
+                    .interact_text()?;
+
+                if path.is_empty() {
+                    if paths.is_empty() {
+                        println!("Please enter at least one target path.");
+                        continue;
+                    }
+                    break;
+                }
+
+                paths.push(PathBuf::from(path));
+            }
+
+            paths
+        }
+    };
+
+    // 設定ファイル用の文字列に変換
+    let targets = watch_paths
+        .iter()
+        .map(|path| format!(r#""{}""#, path.display()))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    // ログファイルのパスを取得
+    let logfile = match &args.logfile {
+        Some(w) => w.clone(),
+        None => {
+            let default_logfile_path = logger::get_default_log_path("canis")
+                .ok_or_else(|| {
+                    eprintln!("Failed to retrieve XDG configuration directory");
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "XDG data directory not available"
+                    )
+                })?;
+
+            let default_logfile_path_str = default_logfile_path
+                .to_string_lossy()
+                .to_string();
+
+            PathBuf::from(
+                Input::new()
+                    .with_prompt("Enter logfile path")
+                    .default(default_logfile_path_str)
+                    .interact_text()?
+            )
+        }
+    };
+
+    let config_content = format!(
+        r#"
 [basic_settings]
-watcher = "notify"
-watchdirs = ["/watch/path/1","/watch/path/2/"]
-logfile = "/path/to/logfile"
+# Select the watcher implementation: notify or fuse
+watcher = "{watcher}"
+
+# Specify the paths of files or directories to monitor
+# When using FUSE, only the first path in this list will be monitored
+targets = [{targets}]
+
+# Specify the path to the log file where audit records will be stored
+# Do not place the log file under any monitored path to avoid infinite loops
+logfile = "{logfile}"
+
+# Specify the path to a local clone of the Git repository
+# This repository is used to publish daily hash values
 hashdir = "/path/to/local/gitrepository/"
-"#;
+"#,
+        watcher = watcher,
+        targets = targets,
+        logfile = logfile.display(),
+    );
 
     fs::write(&config_path, config_content)?;
 
-    println!("設定ファイルを作成しました: {}\n必要な設定は書き換えてください", config_path.display());
+    println!("Configuration file created at: {}\n", config_path.display());
 
-    Ok(())
+    Ok(InitConfig {
+        config_path,
+        binary_path: None,
+    })
 }
 
 #[cfg(target_os = "linux")]
-fn init_start()-> Result<()>{
+fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
+
     let home_dir = match std::env::var("HOME") {
         Ok(dir) => PathBuf::from(dir),
         Err(_) => {
@@ -63,23 +187,68 @@ fn init_start()-> Result<()>{
         }
     };
 
-    // systemd ユーザーディレクトリのパス
-    let systemd_user_dir = home_dir.join(".config/systemd/user");
-
-    // ディレクトリが存在しない場合は作成
-    fs::create_dir_all(&systemd_user_dir)?;
-
     // ユニットファイルのパス
-    let unit_file_path = systemd_user_dir.join("canis-start.service");
+    let unit_file_path = match &args.start {
+        Some(w) => w.clone(),
+        None => {
+            let default_unitfile_path = home_dir.join(".config/systemd/user/canis.service");
 
-    // 設定ファイルのパス
-    let proj_dirs = ProjectDirs::from("", "", "canis")
-        .ok_or_else(|| WatcherError::ConfigError(
-            "XDG設定ディレクトリを取得できませんでした".to_string()
-        ))?;
-    let config_path = proj_dirs.config_dir().join("config.toml");
+            PathBuf::from(
+                Input::new()
+                    .with_prompt("Enter unit file path")
+                    .default(default_unitfile_path.display().to_string())
+                    .interact_text()?
+            )
+        }
+    };
 
-    let username = whoami::username();
+    if unit_file_path.exists() {
+        println!("{} already exists\n", unit_file_path.display());
+        return Ok(InitConfig {
+                    config_path: config.config_path.clone(),
+                    binary_path: None,
+                });
+    }
+
+    // 実行ファイルのパス
+    let binary_path = match &args.binary {
+        Some(w) => w.clone(),
+        None => {
+            let default_binary_path = home_dir.join("bin/canis");
+
+            PathBuf::from(
+                Input::new()
+                    .with_prompt("Enter binary file path")
+                    .default(default_binary_path.display().to_string())
+                    .interact_text()?
+            )
+        }
+    };
+
+    // 設定ファイルのパスを取得
+    // let config_path = match &config.config_path{
+    //     Some(w) => w.clone(),
+    //     None => {
+    //         let proj_dirs = ProjectDirs::from("", "", "canis")
+    //             .ok_or_else(|| WatcherError::ConfigError(
+    //                 "Failed to retrieve XDG configuration directory".to_string()
+    //             ))?;
+
+    //         let default_path_str = proj_dirs
+    //             .config_dir()
+    //             .join("config.toml")
+    //             .to_string_lossy()
+    //             .to_string();
+
+    //         PathBuf::from(
+    //             Input::new()
+    //                 .with_prompt("Enter config file path")
+    //                 .default(default_path_str)
+    //                 .interact_text()?
+    //         )
+    //     }
+    // };
+
 
     // ユニットファイルの内容
     let unit_content = format!(
@@ -88,67 +257,81 @@ Description=canis-start
 
 [Service]
 Type=simple
-User={username}
-ExecStart=%h/.local/bin/canis start --config {config_path}
+ExecStart={binary_path} start --config {config_path}
 Restart=always
 
 [Install]
 WantedBy=default.target
 "#,
-        username = username,
-        config_path = config_path.display()
+        binary_path = binary_path.display(),
+        config_path = config.config_path.display()
     );
 
     // ファイルを作成して内容を書き込む
     fs::write(&unit_file_path, unit_content)?;
 
-    println!("systemd ユニットファイルを作成しました: {}", unit_file_path.display());
+    println!("Unit file created at: {}", unit_file_path.display());
 
-    Ok(())
+    Ok(InitConfig {
+        config_path: config.config_path.clone(),
+        binary_path: Some(binary_path),
+    })
 }
 
 #[cfg(target_os = "windows")]
-fn init_start()-> Result<()>{
-    // サービス定義の出力先
-    let localappdata_dir = std::env::var("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            eprintln!("エラー: LOCALAPPDATA環境変数が設定されていません");
-            std::process::exit(1);
-        });
+fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
+    // ユニットファイルのパス
+    let unit_file_path = match &args.start {
+        Some(w) => w.clone(),
+        None => {
+            let proj_dirs = ProjectDirs::from("", "", "canis")
+                .ok_or_else(|| WatcherError::ConfigError(
+                    "XDG設定ディレクトリを取得できませんでした".to_string()
+                ))?;
+            let default_unitfile_path = proj_dirs.config_dir().join("canis.xml");
 
-    let service_dir = localappdata_dir.join("winsw");
-    fs::create_dir_all(&service_dir)?;
+            PathBuf::from(
+                Input::new()
+                    .with_prompt("Enter unit file path")
+                    .default(default_unitfile_path.display().to_string())
+                    .interact_text()?
+            )
+        }
+    };
 
-    let unit_file_path = service_dir.join("canis-start.xml");
+    if unit_file_path.exists() {
+        println!("{} already exists\n", unit_file_path.display());
+        return Ok(InitConfig {
+                    config_path: config.config_path.clone(),
+                    binary_path: None,
+                });
+    }
 
-    // 設定ファイルのパス
-    let proj_dirs = ProjectDirs::from("", "", "canis")
-        .ok_or_else(|| WatcherError::ConfigError(
-            "XDG設定ディレクトリを取得できませんでした".to_string()
-        ))?;
-    let config_path = proj_dirs.config_dir().join("config.toml");
-
-    // ユーザー名・ドメイン名の取得 (whoami クレートを使用)
+    // ユーザー名・ドメイン名の取得
     let username = whoami::username();
     let domain = whoami::devicename();
 
-    // 実行ファイルのパスを自動取得
-    let localappdata_dir = std::env::var("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            eprintln!("エラー: LOCALAPPDATA環境変数が設定されていません");
-            std::process::exit(1);
-        });
-    let service_dir = localappdata_dir.join("canis");
-    let exe_path = service_dir.join("canis.exe");
+    // 実行ファイルのパス
+    let binary_path = match &args.binary {
+        Some(w) => w.clone(),
+        None => {
+            let default_binary_path = format!(r"C:\Users\{}\bin\canis.exe", username);
+
+            PathBuf::from(
+                Input::new()
+                    .with_prompt("Enter binary file path")
+                    .default(default_binary_path)
+                    .interact_text()?
+            )
+        }
+    };
 
     let unit_content = format!(
         r#"<service>
-  <id>canis-run</id>
-  <name>canis-run</name>
-  <description>canis-run</description>
-  <executable>{exe_path}</executable>
+  <id>canis</id>
+  <name>canis</name>
+  <description>canis</description>
+  <executable>{binary_path}</executable>
   <arguments>start --config {config_path}</arguments>
   <serviceaccount>
     <username>{domain}\{username}</username>
@@ -157,8 +340,8 @@ fn init_start()-> Result<()>{
   </serviceaccount>
 </service>
 "#,
-        exe_path = exe_path.display(),
-        config_path = config_path.display(),
+        binary_path = binary_path.display(),
+        config_path = config.config_path.display(),
         domain = domain,
         username = username,
     );
@@ -167,11 +350,14 @@ fn init_start()-> Result<()>{
 
     println!("WinSW サービス定義ファイルを作成しました: {}", unit_file_path.display());
 
-    Ok(())
+    Ok(InitConfig {
+        config_path: config.config_path.clone(),
+        binary_path: Some(binary_path),
+    })
 }
 
 #[cfg(target_os = "macos")]
-fn init_start()-> Result<()>{
+fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
     // launchd のユーザーエージェントディレクトリ
     let home_dir = match std::env::var("HOME") {
         Ok(dir) => PathBuf::from(dir),
@@ -180,27 +366,74 @@ fn init_start()-> Result<()>{
             std::process::exit(1);
         }
     };
-    let launchd_dir = home_dir.join("Library/LaunchAgents");
 
-    // ディレクトリが存在しない場合は作成
-    fs::create_dir_all(&launchd_dir)?;
+    // ユニットファイルのパス
+    let unit_file_path = match &args.start {
+        Some(w) => w.clone(),
+        None => {
+            let default_unitfile_path = home_dir.join("Library/LaunchAgents/com.canis.start.plist");
 
-    // plist ファイルのパス
-    let plist_path = launchd_dir.join("com.canis.start.plist");
+            PathBuf::from(
+                Input::new()
+                    .with_prompt("Enter unit file path")
+                    .default(default_unitfile_path.display().to_string())
+                    .interact_text()?
+            )
+        }
+    };
 
-    // 実行ファイルのパス（~/.local/bin/canis）
-    let bin_path = home_dir.join(".local/bin/canis");
+    if unit_file_path.exists() {
+        println!("{} already exists\n", unit_file_path.display());
+        return Ok(InitConfig {
+                    config_path: config.config_path.clone(),
+                    binary_path: None,
+                });
+    }
 
-    // 設定ファイルのパス
-    let proj_dirs = ProjectDirs::from("", "", "canis")
-        .ok_or_else(|| WatcherError::ConfigError(
-            "XDG設定ディレクトリを取得できませんでした".to_string()
-        ))?;
-    let config_path = proj_dirs.config_dir().join("config.toml");
+    // 実行ファイルのパス
+    let binary_path = match &args.binary {
+        Some(w) => w.clone(),
+        None => {
+            let default_binary_path = home_dir.join("bin/canis");
 
-    // ログディレクトリのパス
-    let log_dir = home_dir.join("Library/Logs");
-    fs::create_dir_all(&log_dir)?;
+            PathBuf::from(
+                Input::new()
+                    .with_prompt("Enter binary file path")
+                    .default(default_binary_path.display().to_string())
+                    .interact_text()?
+            )
+        }
+    };
+
+    // ログファイル(標準出力)のパス
+    let stdout_path = match &args.daemon_out {
+        Some(w) => w.clone(),
+        None => {
+            let default_stdout_path = home_dir.join("Library/Logs/canis.log");
+
+            PathBuf::from(
+                Input::new()
+                    .with_prompt("Enter daemon stdout logfile path")
+                    .default(default_stdout_path.display().to_string())
+                    .interact_text()?
+            )
+        }
+    };
+
+    // ログファイル(標準エラー)のパス
+    let stderr_path = match &args.daemon_err {
+        Some(w) => w.clone(),
+        None => {
+            let default_stderr_path = home_dir.join("Library/Logs/canis.err");
+
+            PathBuf::from(
+                Input::new()
+                    .with_prompt("Enter daemon stdout logfile path")
+                    .default(default_stderr_path.display().to_string())
+                    .interact_text()?
+            )
+        }
+    };
 
     // 現在のユーザー名を取得
     let username = whoami::username();
@@ -213,7 +446,7 @@ fn init_start()-> Result<()>{
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.{username}.canis-start</string>
+    <string>com.{username}.canis</string>
 
     <key>ProgramArguments</key>
     <array>
@@ -230,17 +463,18 @@ fn init_start()-> Result<()>{
     <true/>
 
     <key>StandardOutPath</key>
-    <string>{log_dir}/canis-start.log</string>
+    <string>{stdout_path}</string>
 
     <key>StandardErrorPath</key>
-    <string>{log_dir}/canis-start.err</string>
+    <string>{stderr_path}</string>
 </dict>
 </plist>
 "#,
         username = username,
-        bin_path = bin_path.display(),
-        config_path = config_path.display(),
-        log_dir = log_dir.display()
+        bin_path = binary_path.display(),
+        config_path = config.config_path.display(),
+        stdout_path = stdout_path.display(),
+        stderr_path = stderr_path.display()
     );
 
     // ファイルを作成して内容を書き込む
@@ -251,6 +485,6 @@ fn init_start()-> Result<()>{
     Ok(())
 }
 
-fn init_publish(){
-    println!("not implemented");
-}
+// fn init_publish(){
+//     println!("not implemented");
+// }
