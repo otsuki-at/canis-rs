@@ -14,8 +14,6 @@ use crate::error;
 use crate::cli::StartArgs;
 
 pub fn start(args: StartArgs) -> Result<()>{
-    println!("=== ファイルアクセス監視システム ===\n");
-
     let config = if let Some(config_path) = args.config {
         // --config が指定された場合
         Config::from_file(&config_path)?
@@ -26,20 +24,20 @@ pub fn start(args: StartArgs) -> Result<()>{
 
     let settings = &config.basic_settings;
 
-    println!("\n--- 設定内容 ---");
-    println!("監視システム: {}", settings.watcher);
-    println!("監視パス数: {}", settings.targets.len());
+    println!("===Configuration===");
+    println!("watcher system: {}", settings.watcher);
+    println!("targets: {}", settings.targets.join(", "));
 
     let logger: Arc<dyn Logger> = match &settings.logfile {
         Some(path) => {
-            println!("ログファイル: {} (設定ファイルで指定)", path);
+            println!("logfile: {}\n", path);
             Arc::new(FileLogger::new(path)?)
         },
         None => {
             // XDG に従ったデフォルトパスを取得
             let default_path = logger::get_default_log_path("canis")
                 .ok_or_else(|| {
-                    eprintln!("エラー: XDG データディレクトリを取得できませんでした");
+                    eprintln!("Failed to retrieve XDG configuration directory");
                     std::io::Error::new(
                         std::io::ErrorKind::NotFound,
                         "XDG data directory not available"
@@ -47,21 +45,21 @@ pub fn start(args: StartArgs) -> Result<()>{
                 })?;
 
             let path_str = default_path.to_string_lossy();
-            println!("ログファイル: {} (XDG デフォルト)", path_str);
+            println!("logfile: {}\n", path_str);
             Arc::new(FileLogger::new(&path_str)?)
         }
     };
 
     #[cfg(target_os = "linux")]
     if args.daemon {
-        println!("\nバックグラウンドで実行します...");
+        println!("\nRunning in the background");
         daemonize()?;
     }
 
     #[cfg(not(unix))]
     if args.daemon {
         anyhow::bail!(
-            "デーモン化は Unix/Linux/macOS でのみサポートされています。\n"
+            "Daemon mode is supported only on Unix-like systems\n"
         );
     }
     let mut watcher = watcher::FileWatcher::new(&settings.watcher)?;
@@ -98,7 +96,7 @@ fn daemonize() -> Result<()> {
     use directories_next::ProjectDirs;
 
     let proj_dirs = ProjectDirs::from("", "", "canis")
-        .ok_or_else(|| anyhow::anyhow!("XDG ディレクトリを取得できませんでした"))?;
+        .ok_or_else(|| anyhow::anyhow!("Failed to retrieve XDG configuration directory"))?;
 
     let data_dir = proj_dirs.data_dir();
     std::fs::create_dir_all(data_dir)?;

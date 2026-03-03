@@ -182,7 +182,7 @@ fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
     let home_dir = match std::env::var("HOME") {
         Ok(dir) => PathBuf::from(dir),
         Err(_) => {
-            eprintln!("エラー: HOME環境変数が設定されていません");
+            eprintln!("HOME environment variable is not set");
             std::process::exit(1);
         }
     };
@@ -286,7 +286,7 @@ fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
         None => {
             let proj_dirs = ProjectDirs::from("", "", "canis")
                 .ok_or_else(|| WatcherError::ConfigError(
-                    "XDG設定ディレクトリを取得できませんでした".to_string()
+                    "Failed to retrieve XDG configuration directory".to_string()
                 ))?;
             let default_unitfile_path = proj_dirs.config_dir().join("canis.xml");
 
@@ -348,7 +348,7 @@ fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
 
     fs::write(&unit_file_path, unit_content)?;
 
-    println!("WinSW サービス定義ファイルを作成しました: {}", unit_file_path.display());
+    println!("WinSW service definition file created at: {}", unit_file_path.display());
 
     Ok(InitConfig {
         config_path: config.config_path.clone(),
@@ -362,7 +362,7 @@ fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
     let home_dir = match std::env::var("HOME") {
         Ok(dir) => PathBuf::from(dir),
         Err(_) => {
-            eprintln!("エラー: HOME環境変数が設定されていません");
+            eprintln!("HOME environment variable is not set");
             std::process::exit(1);
         }
     };
@@ -480,7 +480,7 @@ fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
     // ファイルを作成して内容を書き込む
     fs::write(&plist_path, plist_content)?;
 
-    println!("launchd plist ファイルを作成しました: {}", plist_path.display());
+    println!("launchd plist file created at: {}", plist_path.display());
 
     Ok(())
 }

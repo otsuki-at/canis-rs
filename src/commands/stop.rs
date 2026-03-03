@@ -9,22 +9,22 @@ use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 
 pub fn stop() -> Result<()> {
-    println!("=== Canis デーモン停止 ===\n");
+    println!("Stopping Canis daemon\n");
 
     let pid_file = get_pid_file_path()?;
 
     if !pid_file.exists() {
-        anyhow::bail!("PIDファイルが見つかりません: {}\nデーモンは実行されていないようです", pid_file.display());
+        anyhow::bail!("PID file not found: {}\nThe daemon does not appear to be running", pid_file.display());
     }
 
     // PIDファイルから読み込み
     let pid_str = fs::read_to_string(&pid_file)
-        .context("PIDファイルの読み込みに失敗しました")?;
+        .context("Failed to read PID file")?;
 
     let pid: i32 = pid_str.trim().parse()
-        .context("PIDファイルの内容が不正です")?;
+        .context("Invalid PID file contents")?;
 
-    println!("プロセス {} に停止シグナルを送信しています...", pid);
+    println!("Sending stop signal to process {}", pid);
 
     // SIGTERMを送信
     #[cfg(target_os = "linux")]
@@ -34,7 +34,7 @@ pub fn stop() -> Result<()> {
         // プロセスが存在するか確認
         if let Err(e) = signal::kill(pid, None) {
             if e == nix::errno::Errno::ESRCH {
-                println!("プロセスは既に終了しています");
+                println!("The process has already terminated");
                 fs::remove_file(&pid_file)?;
                 return Ok(());
             }
@@ -43,7 +43,7 @@ pub fn stop() -> Result<()> {
 
         // SIGTERMを送信
         signal::kill(pid, Signal::SIGTERM)
-            .context("停止シグナルの送信に失敗しました")?;
+            .context("Failed to send stop signal")?;
 
         // プロセスの終了を待機（最大10秒）
         for i in 0..10 {
@@ -51,13 +51,13 @@ pub fn stop() -> Result<()> {
 
             // プロセスがまだ存在するか確認
             if signal::kill(pid, None).is_err() {
-                println!("デーモンを停止しました");
+                println!("Daemon stopped successfully");
                 fs::remove_file(&pid_file)?;
                 return Ok(());
             }
 
             if i == 0 {
-                print!("停止を待機中");
+                print!("Waiting for shutdown");
             } else {
                 print!(".");
             }
@@ -65,14 +65,14 @@ pub fn stop() -> Result<()> {
             std::io::stdout().flush().ok();
         }
 
-        println!("\n警告: プロセスが応答しません。強制終了を試みます...");
+        println!("The process is not responding. Attempting force termination");
 
         // SIGKILL で強制終了
         signal::kill(pid, Signal::SIGKILL)
-            .context("強制終了に失敗しました")?;
+            .context("Failed to forcefully terminate the process")?;
 
         std::thread::sleep(Duration::from_millis(500));
-        println!("デーモンを強制終了しました");
+        println!("Daemon forcefully terminated");
     }
 
     // PIDファイルを削除
@@ -87,7 +87,7 @@ fn get_pid_file_path() -> Result<PathBuf> {
     use directories_next::ProjectDirs;
 
     let proj_dirs = ProjectDirs::from("", "", "canis")
-        .ok_or_else(|| anyhow::anyhow!("XDG ディレクトリを取得できませんでした"))?;
+        .ok_or_else(|| anyhow::anyhow!("Failed to retrieve XDG configuration directory"))?;
 
     Ok(proj_dirs.data_dir().join("canis.pid"))
 }

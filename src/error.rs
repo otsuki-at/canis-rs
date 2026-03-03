@@ -7,19 +7,19 @@ pub enum WatcherError {
     IoError(std::io::Error),
     UnsupportedSystem(String),
     HashError(String),
-    // ★新しいバリアントを追加（anyhow::Error を扱う）
+    // 新しいバリアントを追加（anyhow::Error を扱う）
     Other(String),
 }
 
 impl fmt::Display for WatcherError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotifyError(e) => write!(f, "監視エラー: {}", e),
-            Self::ConfigError(s) => write!(f, "設定エラー: {}", s),
-            Self::IoError(e) => write!(f, "I/Oエラー: {}", e),
-            Self::UnsupportedSystem(s) => write!(f, "未対応システム: {}", s),
-            Self::HashError(s) => write!(f, "ハッシュ計算エラー: {}", s),
-            Self::Other(s) => write!(f, "エラー: {}", s),  // ★追加
+            Self::NotifyError(e) => write!(f, "Watcher error: {}", e),
+            Self::ConfigError(s) => write!(f, "Configuration error: {}", s),
+            Self::IoError(e) => write!(f, "I/O error: {}", e),
+            Self::UnsupportedSystem(s) => write!(f, "Unsupported system: {}", s),
+            Self::HashError(s) => write!(f, "Hash computation error: {}", s),
+            Self::Other(s) => write!(f, "Error: {}", s),
         }
     }
 }
@@ -40,11 +40,11 @@ impl From<std::io::Error> for WatcherError {
 
 impl From<toml::de::Error> for WatcherError {
     fn from(err: toml::de::Error) -> Self {
-        Self::ConfigError(format!("TOML解析エラー: {}", err))
+        Self::ConfigError(format!("TOML parse error: {}", err))
     }
 }
 
-// ★anyhow::Error からの変換を追加
+// anyhow::Error からの変換を追加
 impl From<anyhow::Error> for WatcherError {
     fn from(err: anyhow::Error) -> Self {
         Self::Other(err.to_string())

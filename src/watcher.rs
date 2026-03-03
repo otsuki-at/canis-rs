@@ -22,7 +22,7 @@ impl WatcherSystemType {
             "notify" => Ok(Self::Notify),
             "fuse" => Ok(Self::Fuse),
             _ => Err(WatcherError::UnsupportedSystem(
-                format!("未対応の監視システム: {}", s)
+                format!("Unsupported system: {}", s)
             )),
         }
     }
@@ -31,13 +31,6 @@ impl WatcherSystemType {
         match self {
             Self::Notify => true,
             Self::Fuse => false,
-        }
-    }
-
-    fn description(&self) -> &str {
-        match self {
-            Self::Notify => "notify: 標準ファイルシステム監視",
-            Self::Fuse => "FUSE: 詳細なファイルシステム監視",
         }
     }
 }
@@ -52,11 +45,6 @@ impl FileWatcher {
     /// 新しいFileWatcherを生成
     pub fn new(system_name: &str) -> Result<Self> {
         let system_type = WatcherSystemType::from_str(system_name)?;
-
-        println!("監視システム: {}", system_name);
-        println!("複数パス対応: {}",
-                 if system_type.supports_multiple_paths() { "はい" } else { "いいえ" });
-        println!("監視戦略: {}\n", system_type.description());
 
         Ok(Self {
             system_type,
@@ -80,7 +68,7 @@ impl FileWatcher {
             move |res| {
                 let now = Utc::now();
                 if let Err(e) = tx.send((res, now)) {
-                    eprintln!("イベント送信エラー: {:?}", e);
+                    eprintln!("Event dispatch error: {:?}", e);
                 }
             },
             notify::Config::default(),
@@ -89,10 +77,10 @@ impl FileWatcher {
         // 各パスの監視を開始
         for path in paths {
             watcher.watch(path.as_ref(), RecursiveMode::Recursive)?;
-            println!("監視開始: {}", path);
+            println!("Started watching: {}", path);
         }
 
-        println!("Ctrl+C で終了\n");
+        println!("Press Ctrl+C to exit\n");
 
         // observersをcloneして、イベント通知に使用
         let observers = Arc::clone(&self.observers);
@@ -109,7 +97,7 @@ impl FileWatcher {
                         self.notify(&canonical_event);
                     }
                 }
-                Err(e) => eprintln!("監視エラー: {:?}", e),
+                Err(e) => eprintln!("Watcher error: {:?}", e),
             }
         }
 
@@ -152,31 +140,31 @@ impl FileWatcher {
 
         if paths.is_empty() {
             return Err(WatcherError::ConfigError(
-                "監視するパスが指定されていません".to_string()
+                "No paths specified for watching".to_string()
             ));
         }
 
         let original_path = PathBuf::from(&paths[0]);
         if !original_path.exists() {
             return Err(WatcherError::ConfigError(
-                format!("監視対象のパスが存在しません: {}", paths[0])
+                format!("Target path does not exist: {}", paths[0])
             ));
         }
 
         let original_name = original_path.file_name()
-            .ok_or_else(|| WatcherError::ConfigError("無効なパス".to_string()))?;
+            .ok_or_else(|| WatcherError::ConfigError("Invalid path".to_string()))?;
 
         let parent_dir = original_path.parent()
-            .ok_or_else(|| WatcherError::ConfigError("親ディレクトリが存在しません".to_string()))?;
+            .ok_or_else(|| WatcherError::ConfigError("Parent directory does not exist".to_string()))?;
 
         let renamed_path = parent_dir.join(format!("{}.watch", original_name.to_string_lossy()));
         std::fs::rename(&original_path, &renamed_path)?;
         std::fs::create_dir_all(&original_path)?;
 
-        println!("FUSE監視を開始します:");
-        println!("  マウント元(実データ): {}", renamed_path.display());
-        println!("  マウントポイント: {}", original_path.display());
-        println!("  (アクセスは元のパス {} を通じて行ってください)\n", original_path.display());
+        println!("Starting FUSE-based watching:");
+        println!("  Source (actual data): {}", renamed_path.display());
+        println!("  Mount point: {}", original_path.display());
+        println!("  (Please access files through the original path: {})\n",original_path.display());
 
         // シグナルハンドラの設定
         let running = Arc::new(AtomicBool::new(true));
@@ -184,12 +172,12 @@ impl FileWatcher {
 
         // SIGINTとSIGTERMを監視
         let mut signals = Signals::new(&[SIGINT, SIGTERM])
-            .expect("シグナルハンドラの初期化に失敗");
+            .expect("Failed to initialize signal handler");
 
         // シグナル監視スレッド
         std::thread::spawn(move || {
             for sig in signals.forever() {
-                eprintln!("\nシグナル {} を受信しました", sig);
+                eprintln!("\nReceived signal {}", sig);
                 running_clone.store(false, Ordering::SeqCst);
                 break;
             }
@@ -205,7 +193,7 @@ impl FileWatcher {
             &[],
         )?;
 
-        println!("FUSE監視中... Ctrl+C で終了\n");
+        println!("FUSE watcher is running\nPress Ctrl+C to exit\n");
 
         // メインループ - シグナルを受け取るまで待機
         while running.load(Ordering::SeqCst) {
@@ -213,25 +201,25 @@ impl FileWatcher {
         }
 
         // ========== クリーンアップ処理 ==========
-        println!("\nクリーンアップを開始します...");
+        println!("\nStarting cleanup");
 
         // 1. マウント解除
         Self::unmount_with_retry(&original_path);
 
         // 2. マウントポイント(空のディレクトリ)を削除
         if let Err(e) = std::fs::remove_dir(&original_path) {
-            eprintln!("警告: マウントポイントの削除に失敗しました: {}", e);
+            eprintln!("Failed to remove mount point:{}", e);
         }
 
         // 3. リネームしたディレクトリを元の名前に戻す
         if let Err(e) = std::fs::rename(&renamed_path, &original_path) {
-            eprintln!("エラー: ディレクトリ名を元に戻せませんでした: {}", e);
-            eprintln!("手動で {} を {} にリネームしてください", 
+            eprintln!("Failed to restore the original directory name: {}", e);
+            eprintln!("Please manually rename {} back to {}",
                     renamed_path.display(), original_path.display());
             std::process::exit(1);
         }
 
-        println!("クリーンアップ完了。元の状態に復元しました。");
+        println!("Cleanup completed");
         Ok(())
     }
 
@@ -245,7 +233,7 @@ impl FileWatcher {
         const RETRY_DELAY_MS: u64 = 500;
 
         for attempt in 1..=MAX_RETRIES {
-            println!("マウント解除を試行中... (試行 {}/{})", attempt, MAX_RETRIES);
+            println!("Attempting to unmount (attempt {}/{})", attempt, MAX_RETRIES);
 
             // Linux: fusermount -u を実行
             match Command::new("fusermount")
@@ -255,26 +243,26 @@ impl FileWatcher {
             {
                 Ok(output) => {
                     if output.status.success() {
-                        println!("マウント解除成功");
+                        println!("Unmount successful");
                         return;
                     } else {
-                        eprintln!("マウント解除失敗: {}",
+                        eprintln!("Unmount failed: {}",
                                  String::from_utf8_lossy(&output.stderr));
                     }
                 }
                 Err(e) => {
-                    eprintln!("fusermount コマンド実行エラー: {}", e);
+                    eprintln!("Failed to execute fusermount command: {}", e);
                 }
             }
 
             if attempt < MAX_RETRIES {
-                println!("{}ms 待機後、再試行します...", RETRY_DELAY_MS);
+                println!("Retrying after {} ms", RETRY_DELAY_MS);
                 thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
             }
         }
 
         // 最後の手段: umount -l (lazy unmount)
-        eprintln!("通常のアンマウントに失敗しました。強制アンマウント(lazy unmount)を試行します...");
+        eprintln!("Normal unmount failed. Attempting forced unmount (lazy unmount)");
         match Command::new("umount")
             .arg("-l")
             .arg(mount_point)
@@ -282,18 +270,18 @@ impl FileWatcher {
         {
             Ok(output) => {
                 if output.status.success() {
-                    println!("強制アンマウント成功");
+                    println!("Forced unmount successful");
                 } else {
-                    eprintln!("強制アンマウント失敗: {}", 
+                    eprintln!("Forced unmount failed: {}",
                              String::from_utf8_lossy(&output.stderr));
-                    eprintln!("警告: マウントが残っている可能性があります。");
-                    eprintln!("手動で 'sudo umount -l {}' を実行してください", 
+                    eprintln!("The mount point may still be active");
+                    eprintln!("Please run 'sudo umount -l {}' manually",
                              mount_point.display());
                 }
             }
             Err(e) => {
-                eprintln!("umount コマンド実行エラー: {}", e);
-                eprintln!("手動で 'sudo umount -l {}' を実行してください", 
+                eprintln!("Failed to execute umount command: {}", e);
+                eprintln!("Please run 'sudo umount -l {}' manually",
                          mount_point.display());
             }
         }
@@ -309,7 +297,7 @@ impl FileWatcher {
         const RETRY_DELAY_MS: u64 = 500;
 
         for attempt in 1..=MAX_RETRIES {
-            println!("マウント解除を試行中... (試行 {}/{})", attempt, MAX_RETRIES);
+            println!("Attempting to unmount (attempt {}/{})", attempt, MAX_RETRIES);
 
             // macOS: umount を実行
             match Command::new("umount")
@@ -318,26 +306,26 @@ impl FileWatcher {
             {
                 Ok(output) => {
                     if output.status.success() {
-                        println!("マウント解除成功");
+                        println!("Unmount successful");
                         return;
                     } else {
-                        eprintln!("マウント解除失敗: {}",
+                        eprintln!("Unmount failed: {}",
                                  String::from_utf8_lossy(&output.stderr));
                     }
                 }
                 Err(e) => {
-                    eprintln!("umount コマンド実行エラー: {}", e);
+                    eprintln!("Failed to execute umount command: {}", e);
                 }
             }
 
             if attempt < MAX_RETRIES {
-                println!("{}ms 待機後、再試行します...", RETRY_DELAY_MS);
+                println!("Retrying after {} ms", RETRY_DELAY_MS);
                 thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
             }
         }
 
         // 最後の手段: umount -f (force unmount)
-        eprintln!("通常のアンマウントに失敗しました。強制アンマウント(force unmount)を試行します...");
+        eprintln!("Normal unmount failed. Attempting forced unmount (force unmount)");
         match Command::new("umount")
             .arg("-f")
             .arg(mount_point)
@@ -345,18 +333,18 @@ impl FileWatcher {
         {
             Ok(output) => {
                 if output.status.success() {
-                    println!("強制アンマウント成功");
+                    println!("Forced unmount successful");
                 } else {
-                    eprintln!("強制アンマウント失敗: {}", 
+                    eprintln!("Forced unmount failed: {}",
                              String::from_utf8_lossy(&output.stderr));
-                    eprintln!("警告: マウントが残っている可能性があります。");
-                    eprintln!("手動で 'sudo umount -f {}' を実行してください", 
+                    eprintln!("The mount point may still be active");
+                    eprintln!("Please run 'sudo umount -f {}' manually",
                              mount_point.display());
                 }
             }
             Err(e) => {
-                eprintln!("umount コマンド実行エラー: {}", e);
-                eprintln!("手動で 'sudo umount -f {}' を実行してください", 
+                eprintln!("Failed to execute umount command: {}", e);
+                eprintln!("Please run 'sudo umount -f {}' manually",
                          mount_point.display());
             }
         }
@@ -365,7 +353,7 @@ impl FileWatcher {
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     fn start_fuse_watching(&self, _paths: &[String]) -> Result<()> {
         Err(WatcherError::UnsupportedSystem(
-            "FUSE監視はLinux/macOSで利用可能です".to_string()
+            "FUSE-based watching is supported only on Linux and macOS".to_string()
         ))
     }
 }
@@ -374,7 +362,6 @@ impl Subject for FileWatcher {
     fn attach(&mut self, observer: Box<dyn Observer>) {
         let mut observers = self.observers.write().unwrap();
         observers.push(observer);
-        println!("Observer を登録しました (総数: {})", observers.len());
     }
 
     fn notify(&self, event: &CanonicalEvent) {

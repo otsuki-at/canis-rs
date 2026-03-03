@@ -10,8 +10,6 @@ impl EventAdapter {
     pub fn new(processor_level: u8) -> Self {
         let strategy = create_strategy(processor_level);
 
-        println!("変換戦略: {}\n", strategy.description());
-
         Self {
             strategy,
             observers: Vec::new(),
@@ -41,7 +39,6 @@ impl Subject for EventAdapter {
 
 pub trait ConverterStrategy: Send + Sync {
     fn convert(&self, event: CanonicalEvent) -> Option<CanonicalEvent>;
-    fn description(&self) -> String;
 }
 
 /// L1レベルまでの処理戦略
@@ -69,10 +66,6 @@ impl ConverterStrategy for DownToL1Strategy {
             CanonicalEvent::Modify { .. } => Some(event),
         }
     }
-
-    fn description(&self) -> String {
-        "L1処理部: L2以上のイベントをL1に正規化".to_string()
-    }
 }
 
 /// L2レベルまでの処理戦略
@@ -96,10 +89,6 @@ impl ConverterStrategy for DownToL2Strategy {
             | CanonicalEvent::Move { .. } => Some(event),
         }
     }
-
-    fn description(&self) -> String {
-        "L2処理部: L3以上のイベントをL2に正規化".to_string()
-    }
 }
 
 /// L3レベルまでの処理戦略
@@ -111,10 +100,6 @@ impl ConverterStrategy for DownToL3Strategy {
         // L3処理部はすべてのレベルをそのまま処理
         Some(event)
     }
-
-    fn description(&self) -> String {
-        "L3処理部: すべてのイベントをそのまま処理".to_string()
-    }
 }
 
 /// 処理部のレベルに応じた変換戦略を生成する
@@ -123,6 +108,6 @@ pub fn create_strategy(processor_level: u8) -> Box<dyn ConverterStrategy> {
         1 => Box::new(DownToL1Strategy),
         2 => Box::new(DownToL2Strategy),
         3 => Box::new(DownToL3Strategy),
-        _ => panic!("未対応の処理部レベル: P{}", processor_level),
+        _ => panic!("Unsupported processor level: P{}", processor_level),
     }
 }
