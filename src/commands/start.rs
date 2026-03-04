@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use anyhow::Result;
 use std::fs::File;
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 use daemonize::Daemonize;
 
 use crate::config::Config;
@@ -50,7 +50,7 @@ pub fn start(args: StartArgs) -> Result<()>{
         }
     };
 
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     if args.daemon {
         println!("\nRunning in the background");
         daemonize()?;
@@ -91,7 +91,7 @@ pub fn start(args: StartArgs) -> Result<()>{
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn daemonize() -> Result<()> {
     use directories_next::ProjectDirs;
 

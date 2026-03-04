@@ -1,4 +1,6 @@
 pub mod start;
 pub mod init;
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub mod stop;
+// pub mod info;
+pub mod publish;
