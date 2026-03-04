@@ -66,6 +66,7 @@ pub fn start(args: StartArgs) -> Result<()>{
 
     let processor_level = match settings.watcher.as_str() {
         "notify" => 1,
+        #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
         "fuse"   => 3,
         _        => 1,
     };

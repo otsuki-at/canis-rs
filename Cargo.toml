@@ -19,7 +19,11 @@ whoami = "1"
 dialoguer = "0.11"
 
 [target.'cfg(unix)'.dependencies]
-fuser = "0.14"
 signal-hook = "0.3"
 daemonize = "0.5"
 nix = { version = "0.29", features = ["signal"] }
+fuser = {version = "0.14", optional = true}
+
+[features]
+default = []
+fuse = ["fuser"]

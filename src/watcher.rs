@@ -13,6 +13,7 @@ use crate::observer::{Observer, Subject};
 #[derive(Debug, Clone, PartialEq)]
 enum WatcherSystemType {
     Notify,
+    #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
     Fuse,
 }
 
@@ -20,6 +21,7 @@ impl WatcherSystemType {
     fn from_str(s: &str) -> Result<Self> {
         match s {
             "notify" => Ok(Self::Notify),
+            #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
             "fuse" => Ok(Self::Fuse),
             _ => Err(WatcherError::UnsupportedSystem(
                 format!("Unsupported system: {}", s)
@@ -30,6 +32,7 @@ impl WatcherSystemType {
     fn supports_multiple_paths(&self) -> bool {
         match self {
             Self::Notify => true,
+            #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
             Self::Fuse => false,
         }
     }
@@ -57,6 +60,7 @@ impl FileWatcher {
         // 監視システムに応じて処理を分岐
         match self.system_type {
             WatcherSystemType::Notify => self.start_notify_watching(paths),
+            #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
             WatcherSystemType::Fuse => self.start_fuse_watching(paths),
         }
     }
@@ -133,7 +137,7 @@ impl FileWatcher {
     }
 
     /// FUSE を使った監視の開始
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
     fn start_fuse_watching(&self, paths: &[String]) -> Result<()> {
         use signal_hook::{consts::{SIGINT, SIGTERM}, iterator::Signals};
         use std::path::PathBuf;
@@ -223,7 +227,7 @@ impl FileWatcher {
         Ok(())
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(feature = "fuse", target_os = "linux"))]
     fn unmount_with_retry(mount_point: &Path) {
         use std::process::Command;
         use std::thread;
@@ -287,7 +291,7 @@ impl FileWatcher {
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(all(feature = "fuse", target_os = "macos"))]
     fn unmount_with_retry(mount_point: &Path) {
         use std::process::Command;
         use std::thread;
@@ -350,7 +354,7 @@ impl FileWatcher {
         }
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(all(feature = "fuse", not(any(target_os = "linux", target_os = "macos"))))]
     fn start_fuse_watching(&self, _paths: &[String]) -> Result<()> {
         Err(WatcherError::UnsupportedSystem(
             "FUSE-based watching is supported only on Linux and macOS".to_string()
@@ -376,38 +380,30 @@ impl Subject for FileWatcher {
 // FUSE 実装（Unix限定）- 完全版 + イベント通知
 // ============================================================================
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use fuser::{
-    Filesystem, KernelConfig, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory,
-    ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite,
-    ReplyXattr, Request, TimeOrNow, ReplyLseek, ReplyBmap, ReplyIoctl,
+#[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
+use {
+    fuser::{
+        Filesystem, KernelConfig, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory,
+        ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyLock, ReplyOpen, ReplyStatfs, ReplyWrite,
+        ReplyXattr, Request, TimeOrNow, ReplyLseek, ReplyBmap, ReplyIoctl,
+    },
+    libc::{c_int, EACCES, EINVAL, EIO, ENOENT, ENOSYS, ENOTEMPTY},
+    std::collections::HashMap,
+    std::ffi::OsStr,
+    std::fs::{self, File, OpenOptions},
+    std::io::{Read, Seek, SeekFrom, Write},
+    std::os::unix::ffi::OsStrExt,
+    std::os::unix::fs::{MetadataExt, PermissionsExt},
+    std::path::{Path, PathBuf},
+    std::sync::Mutex,
+    std::time::{Duration, SystemTime, UNIX_EPOCH},
 };
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use libc::{c_int, EACCES, EINVAL, EIO, ENOENT, ENOSYS, ENOTEMPTY};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::collections::HashMap;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::ffi::OsStr;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::fs::{self, File, OpenOptions};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::io::{Read, Seek, SeekFrom, Write};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::os::unix::ffi::OsStrExt;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::path::{Path, PathBuf};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::sync::Mutex;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
 const TTL: Duration = Duration::from_secs(1);
 
 /// Convert a system time to a tuple of (seconds, nanoseconds)
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
 fn system_time_to_tuple(time: SystemTime) -> (i64, u32) {
     match time.duration_since(UNIX_EPOCH) {
         Ok(duration) => (duration.as_secs() as i64, duration.subsec_nanos()),
@@ -416,7 +412,7 @@ fn system_time_to_tuple(time: SystemTime) -> (i64, u32) {
 }
 
 /// Convert file metadata to FileAttr
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
 fn metadata_to_attr(ino: u64, metadata: &fs::Metadata) -> fuser::FileAttr {
     let (atime_sec, atime_nsec) = system_time_to_tuple(
         metadata
@@ -461,13 +457,13 @@ fn metadata_to_attr(ino: u64, metadata: &fs::Metadata) -> fuser::FileAttr {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
 struct InodeData {
     path: PathBuf,
     lookup_count: u64,
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
 pub struct PassthroughFS {
     root: PathBuf,
     inodes: Arc<Mutex<HashMap<u64, InodeData>>>,
@@ -479,7 +475,7 @@ pub struct PassthroughFS {
     observers: Arc<RwLock<Vec<Box<dyn Observer>>>>,
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
 impl PassthroughFS {
     pub fn new(root: PathBuf, observers: Arc<RwLock<Vec<Box<dyn Observer>>>>) -> Self {
         let mut inodes = HashMap::new();
@@ -572,7 +568,7 @@ impl PassthroughFS {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
 impl Filesystem for PassthroughFS {
     fn init(
         &mut self,
@@ -917,7 +913,7 @@ impl Filesystem for PassthroughFS {
 
         let path = parent_path.join(name);
 
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
         match std::os::unix::fs::symlink(link, &path) {
             Ok(_) => match fs::symlink_metadata(&path) {
                 Ok(metadata) => {
