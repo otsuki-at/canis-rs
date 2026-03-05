@@ -4,8 +4,8 @@ use std::path::Path;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct BasicSettings {
-    pub watcher: String,
-    pub targets: Vec<String>,
+    pub watcher: Option<String>,
+    pub targets: Option<Vec<String>>,
     pub logfile: Option<String>,
     pub hashdir: Option<String>,
 }
@@ -19,14 +19,12 @@ impl Config {
     pub fn from_file(path: &Path) -> Result<Self> {
         if !path.exists() {
             return Err(WatcherError::ConfigError(
-                format!("設定ファイルが見つかりません: {}", path.display())
+                format!("Configuration file not found: {}", path.display())
             ));
         }
 
         let content = std::fs::read_to_string(path)?;
         let config: Config = toml::from_str(&content)?;
-
-        config.validate()?;
 
         Ok(config)
     }
@@ -36,32 +34,20 @@ impl Config {
 
         let proj_dirs = ProjectDirs::from("", "", "canis")
             .ok_or_else(|| WatcherError::ConfigError(
-                "XDG設定ディレクトリを取得できませんでした".to_string()
+                "Failed to retrieve XDG configuration directory".to_string()
             ))?;
 
         let config_path = proj_dirs.config_dir().join("config.toml");
 
         if !config_path.exists() {
             return Err(WatcherError::ConfigError(
-                format!("設定ファイルが見つかりません: {}", config_path.display())
+                format!("Configuration file not found: {}", config_path.display())
             ));
         }
 
         let content = std::fs::read_to_string(&config_path)?;
         let config: Config = toml::from_str(&content)?;
 
-        config.validate()?;
-
         Ok(config)
-    }
-
-    fn validate(&self) -> Result<()> {
-        if self.basic_settings.targets.is_empty() {
-            return Err(WatcherError::ConfigError(
-                "監視パスが指定されていません".to_string()
-            ));
-        }
-
-        Ok(())
     }
 }

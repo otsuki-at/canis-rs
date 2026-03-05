@@ -75,6 +75,18 @@ pub struct StartArgs {
     #[arg(short = 'c', long = "config")]
     pub config: Option<PathBuf>,
 
+    /// File system watcher backend to use
+    #[arg(long)]
+    pub watcher: Option<String>,
+
+    /// Paths to watch for operation
+    #[arg(long = "targets", value_delimiter = ',')]
+    pub targets: Option<Vec<String>>,
+
+    /// Path to log file for digest
+    #[arg(long)]
+    pub logfile: Option<String>,
+
     /// Start background
     #[cfg_attr(not(unix), arg(hide = true))]
     #[arg(short = 'd', long = "daemon")]
@@ -97,4 +109,14 @@ pub struct PublishArgs {
     /// Specify config file
     #[arg(short = 'c', long = "config")]
     pub config: Option<PathBuf>,
+}
+
+impl StartArgs {
+    pub fn is_complete(&self) -> bool {
+        self.watcher.as_ref().map_or(false, |w| !w.is_empty())
+            && self.targets.as_ref().map_or(false, |t| {
+                !t.is_empty() && t.iter().all(|s| !s.is_empty())
+            })
+            && self.logfile.as_ref().map_or(false, |l| !l.is_empty())
+    }
 }

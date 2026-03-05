@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use anyhow::Result;
 use std::fs::File;
+use std::path::PathBuf;
 #[cfg(unix)]
 use daemonize::Daemonize;
 
@@ -10,45 +11,53 @@ use crate::watcher;
 use crate::adapter;
 use crate::processor;
 use crate::observer::Subject;
-use crate::error;
+use crate::error::WatcherError;
 use crate::cli::StartArgs;
 
 pub fn start(args: StartArgs) -> Result<()>{
-    let config = if let Some(config_path) = args.config {
-        // --config が指定された場合
-        Config::from_file(&config_path)?
+    let config = if args.is_complete() {
+        None
+    } else if let Some(config_path) = args.config {
+        Some(Config::from_file(&config_path)?)
     } else {
-        // --config が指定されなかった場合
-        Config::from_xdg()?
+        Some(Config::from_xdg()?)
     };
 
-    let settings = &config.basic_settings;
+    let settings = config.as_ref().map(|c| &c.basic_settings);
+
+    let watcher_system = args.watcher
+        .filter(|w| !w.is_empty())
+        .or_else(|| settings.and_then(|s| s.watcher.clone()))
+        .ok_or_else(|| WatcherError::ConfigError(
+            "Failed to determine watcher".to_string()
+        ))?;
+
+    let targets = args.targets
+        .filter(|t| !t.is_empty() && t.iter().all(|s| !s.is_empty()))
+        .or_else(|| settings.and_then(|s| s.targets.clone()))
+        .ok_or_else(|| WatcherError::ConfigError(
+            "targets not specified".to_string()
+        ))?;
+
+    let logfile_path = args.logfile
+        .filter(|l| !l.is_empty())
+        .or_else(|| settings.and_then(|s| s.logfile.clone()))
+        .or_else(|| {
+            logger::get_default_log_path("canis")
+                .map(|p| p.to_string_lossy().into_owned())
+        })
+        .ok_or_else(|| WatcherError::ConfigError(
+            "Failed to determine log file path".to_string()
+        ))?;
+
+    let logger: Arc<dyn Logger> = Arc::new(FileLogger::new(
+        &logfile_path
+    )?);
 
     println!("===Configuration===");
-    println!("watcher system: {}", settings.watcher);
-    println!("targets: {}", settings.targets.join(", "));
-
-    let logger: Arc<dyn Logger> = match &settings.logfile {
-        Some(path) => {
-            println!("logfile: {}\n", path);
-            Arc::new(FileLogger::new(path)?)
-        },
-        None => {
-            // XDG に従ったデフォルトパスを取得
-            let default_path = logger::get_default_log_path("canis")
-                .ok_or_else(|| {
-                    eprintln!("Failed to retrieve XDG configuration directory");
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "XDG data directory not available"
-                    )
-                })?;
-
-            let path_str = default_path.to_string_lossy();
-            println!("logfile: {}\n", path_str);
-            Arc::new(FileLogger::new(&path_str)?)
-        }
-    };
+    println!("watcher system: {}", watcher_system);
+    println!("targets: {}", targets.join(", "));
+    println!("logfile: {}\n", logfile_path);
 
     #[cfg(unix)]
     if args.daemon {
@@ -62,9 +71,9 @@ pub fn start(args: StartArgs) -> Result<()>{
             "Daemon mode is supported only on Unix-like systems\n"
         );
     }
-    let mut watcher = watcher::FileWatcher::new(&settings.watcher)?;
+    let mut watcher = watcher::FileWatcher::new(&watcher_system)?;
 
-    let processor_level = match settings.watcher.as_str() {
+    let processor_level = match watcher_system.as_str() {
         "notify" => 1,
         #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
         "fuse"   => 3,
@@ -87,7 +96,7 @@ pub fn start(args: StartArgs) -> Result<()>{
     // 監視部にアダプターをObserverとして登録 (オブザーバパターン第1段階)
     watcher.attach(Box::new(adapter));
 
-    watcher.start_watching(&settings.targets)?;
+    watcher.start_watching(&targets)?;
 
     Ok(())
 }
