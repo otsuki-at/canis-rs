@@ -108,7 +108,10 @@ fn init_config(args: &InitArgs) -> Result<InitConfig>{
     // 設定ファイル用の文字列に変換
     let targets = watch_paths
         .iter()
-        .map(|path| format!(r#""{}""#, path.display()))
+        .map(|path| {
+            let path_str = path.display().to_string().replace('\\', "/");
+            format!(r#"\"{}\""#, path_str)
+        })
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -127,7 +130,8 @@ fn init_config(args: &InitArgs) -> Result<InitConfig>{
 
             let default_logfile_path_str = default_logfile_path
                 .to_string_lossy()
-                .to_string();
+                .to_string()
+                .replace('\\', "/");
 
             PathBuf::from(
                 Input::new()
@@ -137,6 +141,8 @@ fn init_config(args: &InitArgs) -> Result<InitConfig>{
             )
         }
     };
+
+    let logfile_display = logfile.display().to_string().replace('\\', "/");
 
     let config_content = format!(
         r#"
@@ -158,7 +164,7 @@ hashdir = "/path/to/local/gitrepository/"
 "#,
         watcher = watcher,
         targets = targets,
-        logfile = logfile.display(),
+        logfile = logfile_display,
     );
 
     fs::write(&config_path, config_content)?;
