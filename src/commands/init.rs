@@ -148,7 +148,7 @@ watcher = "{watcher}"
 # When using FUSE, only the first path in this list will be monitored
 targets = [{targets}]
 
-# Specify the path to the log file where audit records will be stored
+# Specify the path to the log file where digest will be stored
 # Do not place the log file under any monitored path to avoid infinite loops
 logfile = "{logfile}"
 
@@ -473,11 +473,14 @@ fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
     );
 
     // ファイルを作成して内容を書き込む
-    fs::write(&plist_path, plist_content)?;
+    fs::write(&unit_file_path, plist_content)?;
 
-    println!("launchd plist file created at: {}", plist_path.display());
+    println!("launchd plist file created at: {}", unit_file_path.display());
 
-    Ok(())
+    Ok(InitConfig {
+        config_path: config.config_path.clone(),
+        binary_path: Some(binary_path),
+    })
 }
 
 // fn init_publish(){

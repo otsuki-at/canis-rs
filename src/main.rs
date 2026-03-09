@@ -36,7 +36,7 @@ fn main() -> Result<()> {
             }
         },
         Commands::Publish(args) =>{
-            commands::publish::publish(args)?;
+            println!("PublishCommand is not implemented");
         },
     }
 
