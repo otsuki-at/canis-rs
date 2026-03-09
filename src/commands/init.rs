@@ -110,7 +110,7 @@ fn init_config(args: &InitArgs) -> Result<InitConfig>{
         .iter()
         .map(|path| {
             let path_str = path.display().to_string().replace('\\', "/");
-            format!(r#"\"{}\""#, path_str)
+            format!(r#""{}""#, path_str)
         })
         .collect::<Vec<_>>()
         .join(", ");
