@@ -65,16 +65,20 @@ canis は，バックグラウンドで動作してユーザのファイル操�
 # Installation
 1. Releases から各 OS に対応したバイナリをダウンロードしてください
 
-MacOSの場合は， gatekeeper というダウンロードしたファイルが安全な開発元によるものか検証し，マルウェアの実行を防止するセキュリティ機能を無効にする必要があります．
-無効にするためには以下のコマンドを実行してください．
+2. ダウンロードしたバイナリを任意のパスに移動して利用することができます．各 OS について移動先の例を以下に示します．
+- Linux: ~/bin/
+- Windows: C:\Users\<username>\bin\
+- MacOS: ~/bin/
+
+MacOSの場合は，実行するためには以下の操作が必要になります．
+  - 実行権限の付与
+  - ダウンロードしたファイルが安全な開発元によるものか検証し，マルウェアの実行を防止するセキュリティ機能を無効にする
+
+これらの操作を行うためには，以下のコマンドを実行してください．
 ```
+  $ chmod +x canis
   $ xattr -d com.apple.quarantine canis
 ```
-
-2. ダウンロードしたバイナリを任意のパスに移動して利用することができます．各 OS について移動先の例を以下に示します．
-    - Linux: ~/bin/
-    - Windows: C:\Users\<username>\bin\
-    - MacOS: ~/bin/
 
 # Configuration
 ## Collect Component, Search Component
@@ -103,7 +107,7 @@ MacOSの場合は， gatekeeper というダウンロードしたファイルが
   # When using FUSE, only the first path in this list will be monitored
   targets = ["/watching/path/1/","/watching/path/2/"]
 
-  # Specify the path to the log file where audit records will be stored
+  # Specify the path to the log file where digest will be stored
   # Do not place the log file under any monitored path to avoid infinite loops
   logfile = "/path/to/logfile"
 
@@ -279,7 +283,7 @@ canis の設定を記載できる設定ファイルや自動起動のための�
   # When using FUSE, only the first path in this list will be monitored
   targets = ["/watching/path/1/","/watching/path/2/"]
 
-  # Specify the path to the log file where audit records will be stored
+  # Specify the path to the log file where digest will be stored
   # Do not place the log file under any monitored path to avoid infinite loops
   logfile = "/path/to/logfile"
 
