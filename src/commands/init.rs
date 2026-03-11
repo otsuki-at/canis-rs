@@ -9,35 +9,35 @@ use crate::cli::InitArgs;
 
 use directories_next::ProjectDirs;
 
-struct InitConfig {
-    config_path: PathBuf,
-    binary_path: Option<PathBuf>,
-}
-
 pub fn init(args: InitArgs) -> Result<()>{
-    let config = init_config(&args)?;
+    if args.config.is_none() && args.start.is_none() && args.publish.is_none() {
+        println!("Starting configuration file generation");
+        init_config(&args)?;
+        println!("Starting service file generation");
+        init_start(&args)?;
+        // println!("Starting publish service file generation.");
+        // init_publish(&args)?;
+    }
 
-    // start 用のファイル作成関数呼び出し
+    if args.config.is_some() {
+        println!("Starting configuration file generation");
+        init_config(&args)?;
+    }
+
     if args.start.is_some() {
-        let _config = init_start(&args, &config)?;
-        return Ok(());
+        println!("Starting service file generation");
+        init_start(&args)?;
     }
-    else{
-        if Confirm::new()
-            .with_prompt("Do you want to create unit file for canis start?")
-            .interact()
-            .unwrap()
-            {
-                let _config = init_start(&args, &config)?;
-            }
 
-    }
-    // init_publish();
+    // if args.publish.is_some() {
+    //     println!("Starting publish service file generation.");
+    //     init_publish(&args)?;
+    // }
 
     Ok(())
 }
 
-fn init_config(args: &InitArgs) -> Result<InitConfig>{
+fn init_config(args: &InitArgs) -> Result<()>{
     // 設定ファイルのパスを取得
     let config_path = match &args.config {
         Some(w) => w.clone(),
@@ -63,11 +63,9 @@ fn init_config(args: &InitArgs) -> Result<InitConfig>{
     };
 
     if config_path.exists() {
-        println!("{} already exists\n", config_path.display());
-        return Ok(InitConfig {
-                    config_path,
-                    binary_path: None,
-                })
+        println!("{} already exists", config_path.display());
+        println!("To make changes, please edit the existing configuration file\n");
+        return Ok(())
     }
 
     let watcher = match &args.watcher {
@@ -171,14 +169,11 @@ hashdir = "/path/to/local/gitrepository/"
 
     println!("Configuration file created at: {}\n", config_path.display());
 
-    Ok(InitConfig {
-        config_path,
-        binary_path: None,
-    })
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
+fn init_start(args: &InitArgs)-> Result<()>{
 
     let home_dir = match std::env::var("HOME") {
         Ok(dir) => PathBuf::from(dir),
@@ -204,11 +199,9 @@ fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
     };
 
     if unit_file_path.exists() {
-        println!("{} already exists\n", unit_file_path.display());
-        return Ok(InitConfig {
-                    config_path: config.config_path.clone(),
-                    binary_path: None,
-                });
+        println!("{} already exists", unit_file_path.display());
+        println!("To make changes, please edit the service configuration file\n");
+        return Ok(());
     }
 
     // 実行ファイルのパス
@@ -227,28 +220,28 @@ fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
     };
 
     // 設定ファイルのパスを取得
-    // let config_path = match &config.config_path{
-    //     Some(w) => w.clone(),
-    //     None => {
-    //         let proj_dirs = ProjectDirs::from("", "", "canis")
-    //             .ok_or_else(|| WatcherError::ConfigError(
-    //                 "Failed to retrieve XDG configuration directory".to_string()
-    //             ))?;
+    let config_path = match &args.config{
+        Some(w) => w.clone(),
+        None => {
+            let proj_dirs = ProjectDirs::from("", "", "canis")
+                .ok_or_else(|| WatcherError::ConfigError(
+                    "Failed to retrieve XDG configuration directory".to_string()
+                ))?;
 
-    //         let default_path_str = proj_dirs
-    //             .config_dir()
-    //             .join("config.toml")
-    //             .to_string_lossy()
-    //             .to_string();
+            let default_path_str = proj_dirs
+                .config_dir()
+                .join("config.toml")
+                .to_string_lossy()
+                .to_string();
 
-    //         PathBuf::from(
-    //             Input::new()
-    //                 .with_prompt("Enter config file path")
-    //                 .default(default_path_str)
-    //                 .interact_text()?
-    //         )
-    //     }
-    // };
+            PathBuf::from(
+                Input::new()
+                    .with_prompt("Enter config file path")
+                    .default(default_path_str)
+                    .interact_text()?
+            )
+        }
+    };
 
 
     // ユニットファイルの内容
@@ -265,7 +258,7 @@ Restart=always
 WantedBy=default.target
 "#,
         binary_path = binary_path.display(),
-        config_path = config.config_path.display()
+        config_path = config_path.display()
     );
 
     // ファイルを作成して内容を書き込む
@@ -273,14 +266,11 @@ WantedBy=default.target
 
     println!("Unit file created at: {}", unit_file_path.display());
 
-    Ok(InitConfig {
-        config_path: config.config_path.clone(),
-        binary_path: Some(binary_path),
-    })
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
-fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
+fn init_start(args: &InitArgs)-> Result<()>{
     // ユニットファイルのパス
     let unit_file_path = match &args.start {
         Some(w) => w.clone(),
@@ -301,11 +291,9 @@ fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
     };
 
     if unit_file_path.exists() {
-        println!("{} already exists\n", unit_file_path.display());
-        return Ok(InitConfig {
-                    config_path: config.config_path.clone(),
-                    binary_path: None,
-                });
+        println!("{} already exists", unit_file_path.display());
+        println!("To make changes, please edit the service configuration file\n");
+        return Ok(());
     }
 
     // ユーザー名・ドメイン名の取得
@@ -351,14 +339,11 @@ fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
 
     println!("WinSW service definition file created at: {}", unit_file_path.display());
 
-    Ok(InitConfig {
-        config_path: config.config_path.clone(),
-        binary_path: Some(binary_path),
-    })
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
-fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
+fn init_start(args: &InitArgs)-> Result<()>{
     // launchd のユーザーエージェントディレクトリ
     let home_dir = match std::env::var("HOME") {
         Ok(dir) => PathBuf::from(dir),
@@ -384,11 +369,9 @@ fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
     };
 
     if unit_file_path.exists() {
-        println!("{} already exists\n", unit_file_path.display());
-        return Ok(InitConfig {
-                    config_path: config.config_path.clone(),
-                    binary_path: None,
-                });
+        println!("{} already exists", unit_file_path.display());
+        println!("To make changes, please edit the service configuration file\n");
+        return Ok(());
     }
 
     // 実行ファイルのパス
@@ -483,10 +466,7 @@ fn init_start(args: &InitArgs, config: &InitConfig)-> Result<InitConfig>{
 
     println!("launchd plist file created at: {}", unit_file_path.display());
 
-    Ok(InitConfig {
-        config_path: config.config_path.clone(),
-        binary_path: Some(binary_path),
-    })
+    Ok(())
 }
 
 // fn init_publish(){

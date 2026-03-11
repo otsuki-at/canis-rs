@@ -66,7 +66,7 @@ pub struct InitArgs {
 
     /// Generate only service file for daily publishing (canis publish)
     #[arg(short = 'p', long = "publish")]
-    pub publish: bool,
+    pub publish: Option<PathBuf>,
 }
 
 #[derive(Args)]
