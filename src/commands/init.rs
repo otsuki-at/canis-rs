@@ -113,6 +113,39 @@ fn init_config(args: &InitArgs) -> Result<()>{
         .collect::<Vec<_>>()
         .join(", ");
 
+    // 無視するパスを取得
+    let ignore_paths: Vec<String> = match &args.ignore {
+        Some(ignore) if !ignore.is_empty() => ignore.clone(),
+        _ => {
+            let mut paths: Vec<String> = Vec::new();
+
+            loop {
+                let path: String = Input::new()
+                    .with_prompt(format!("Enter ignore path #{}", paths.len() + 1))
+                    .allow_empty(true)
+                    .interact_text()?;
+
+                if path.is_empty() {
+                    break;
+                }
+
+                paths.push(path);
+            }
+
+            paths
+        }
+    };
+
+    // 設定ファイル用の文字列に変換
+    let ignore = ignore_paths
+        .iter()
+        .map(|path| {
+            let path_str = path.replace('\\', "/");
+            format!(r#""{}""#, path_str)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
     // ログファイルのパスを取得
     let logfile = match &args.logfile {
         Some(w) => w.clone(),
@@ -152,6 +185,10 @@ watcher = "{watcher}"
 # When using FUSE, only the first path in this list will be monitored
 targets = [{targets}]
 
+# Specify paths to files or directories whose operations should be ignored
+# Any user actions on these paths will not be monitored or recorded
+ignore = [{ignore}]
+
 # Specify the path to the log file where digest will be stored
 # Do not place the log file under any monitored path to avoid infinite loops
 logfile = "{logfile}"
@@ -162,6 +199,7 @@ hashdir = "/path/to/local/gitrepository/"
 "#,
         watcher = watcher,
         targets = targets,
+        ignore=ignore,
         logfile = logfile_display,
     );
 

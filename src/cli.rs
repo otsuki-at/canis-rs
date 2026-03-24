@@ -35,12 +35,16 @@ pub struct InitArgs {
     pub watcher: Option<String>,
 
     /// Paths to watch for operation
-    #[arg(long = "targets", value_delimiter = ',')]
+    #[arg(long, value_delimiter = ',')]
     pub targets: Option<Vec<PathBuf>>,
 
     /// Path to log file for digest
     #[arg(long)]
     pub logfile: Option<PathBuf>,
+
+    /// Paths to ignore by the file system watcher
+    #[arg(long, value_delimiter = ',')]
+    pub ignore: Option<Vec<String>>,
 
     /// Local git repository path for hash storage and publication
     #[arg(long)]
@@ -80,12 +84,16 @@ pub struct StartArgs {
     pub watcher: Option<String>,
 
     /// Paths to watch for operation
-    #[arg(long = "targets", value_delimiter = ',')]
+    #[arg(long, value_delimiter = ',')]
     pub targets: Option<Vec<String>>,
 
     /// Path to log file for digest
     #[arg(long)]
     pub logfile: Option<String>,
+
+    /// Paths to ignore by the file system watcher
+    #[arg(long, value_delimiter = ',')]
+    pub ignore: Option<Vec<String>>,
 
     /// Start background
     #[cfg_attr(not(unix), arg(hide = true))]

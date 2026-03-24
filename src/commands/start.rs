@@ -54,9 +54,21 @@ pub fn start(args: StartArgs) -> Result<()>{
         &logfile_path
     )?);
 
+    let user_ignore_paths = args.ignore
+        .filter(|t| !t.is_empty() && t.iter().all(|s| !s.is_empty()))
+        .or_else(|| settings.and_then(|s| s.ignore.clone()))
+        .ok_or_else(|| WatcherError::ConfigError(
+            "ignore paths not specified".to_string()
+        ))?;
+
+    let ignore_paths: Vec<String> = std::iter::once(logfile_path.clone())
+        .chain(user_ignore_paths)
+        .collect();
+
     println!("===Configuration===");
     println!("watcher system: {}", watcher_system);
     println!("targets: {}", targets.join(", "));
+    println!("ignore_paths: {}", ignore_paths.join(", "));
     println!("logfile: {}\n", logfile_path);
 
     #[cfg(unix)]
@@ -96,7 +108,7 @@ pub fn start(args: StartArgs) -> Result<()>{
     // 監視部にアダプターをObserverとして登録 (オブザーバパターン第1段階)
     watcher.attach(Box::new(adapter));
 
-    watcher.start_watching(&targets)?;
+    watcher.start_watching(&targets, &ignore_paths)?;
 
     Ok(())
 }

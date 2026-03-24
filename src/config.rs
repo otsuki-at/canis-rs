@@ -6,6 +6,7 @@ use std::path::Path;
 pub struct BasicSettings {
     pub watcher: Option<String>,
     pub targets: Option<Vec<String>>,
+    pub ignore: Option<Vec<String>>,
     pub logfile: Option<String>,
     pub hashdir: Option<String>,
 }

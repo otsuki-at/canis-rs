@@ -3,6 +3,7 @@ use notify::{Watcher, RecursiveMode, Event, EventKind, RecommendedWatcher};
 use notify::event::{ModifyKind};
 use std::sync::mpsc::channel;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::Path;
 use chrono::Utc;
 
 use crate::error::{Result, WatcherError};
@@ -56,17 +57,19 @@ impl FileWatcher {
     }
 
     /// 監視を開始
-    pub fn start_watching(&mut self, paths: &[String]) -> Result<()> {
+    pub fn start_watching(&mut self, paths: &[String], ignore_paths: &[String]) -> Result<()> {
         // 監視システムに応じて処理を分岐
         match self.system_type {
-            WatcherSystemType::Notify => self.start_notify_watching(paths),
+            WatcherSystemType::Notify => self.start_notify_watching(paths, ignore_paths),
             #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
-            WatcherSystemType::Fuse => self.start_fuse_watching(paths),
+            WatcherSystemType::Fuse => self.start_fuse_watching(paths, ignore_paths),
         }
     }
 
     /// notify を使った監視の開始
-    fn start_notify_watching(&self, paths: &[String]) -> Result<()> {
+    fn start_notify_watching(&self, paths: &[String], ignore_paths: &[String]) -> Result<()> {
+        let ignore_paths = Arc::new(ignore_paths.to_vec());
+
         let (tx, rx) = channel();
         let mut watcher = RecommendedWatcher::new(
             move |res| {
@@ -93,6 +96,9 @@ impl FileWatcher {
         for (res, time) in rx {
             match res {
                 Ok(event) => {
+                    if event.paths.iter().any(|p| self.should_ignore(p, &ignore_paths)) {
+                        continue;
+                    }
                     // notifyイベントをCanonicalEventに変換
                     let canonical_events = self.convert_notify_event(event, time);
 
@@ -136,11 +142,14 @@ impl FileWatcher {
         events
     }
 
+    fn should_ignore(&self, path: &Path, ignore_paths: &[String]) -> bool {
+        ignore_paths.iter().any(|p| path.starts_with(p.as_str()))
+    }
+
     /// FUSE を使った監視の開始
     #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
-    fn start_fuse_watching(&self, paths: &[String]) -> Result<()> {
+    fn start_fuse_watching(&self, paths: &[String], ignore_paths: &[String]) -> Result<()> {
         use signal_hook::{consts::{SIGINT, SIGTERM}, iterator::Signals};
-        use std::path::PathBuf;
 
         if paths.is_empty() {
             return Err(WatcherError::ConfigError(
@@ -188,7 +197,7 @@ impl FileWatcher {
         });
 
         let observers = Arc::clone(&self.observers);
-        let fs = PassthroughFS::new(renamed_path.clone(), observers);
+        let fs = PassthroughFS::new(renamed_path.clone(), observers, ignore_paths);
 
         // FUSEをマウント
         let _session = fuser::spawn_mount2(
@@ -394,7 +403,7 @@ use {
     std::io::{Read, Seek, SeekFrom, Write},
     std::os::unix::ffi::OsStrExt,
     std::os::unix::fs::{MetadataExt, PermissionsExt},
-    std::path::{Path, PathBuf},
+    std::path::{PathBuf},
     std::sync::Mutex,
     std::time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -473,11 +482,13 @@ pub struct PassthroughFS {
     next_fh: Arc<Mutex<u64>>,
     // イベント通知用のobservers（追加）
     observers: Arc<RwLock<Vec<Box<dyn Observer>>>>,
+    // 無視するファイルパスのリスト
+    ignore_paths: Vec<String>,
 }
 
 #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
 impl PassthroughFS {
-    pub fn new(root: PathBuf, observers: Arc<RwLock<Vec<Box<dyn Observer>>>>) -> Self {
+    pub fn new(root: PathBuf, observers: Arc<RwLock<Vec<Box<dyn Observer>>>>, ignore_paths: &[String]) -> Self {
         let mut inodes = HashMap::new();
         let mut path_to_inode = HashMap::new();
 
@@ -499,6 +510,7 @@ impl PassthroughFS {
             file_handles: Arc::new(Mutex::new(HashMap::new())),
             next_fh: Arc::new(Mutex::new(1)),
             observers,
+            ignore_paths: ignore_paths.to_vec(),
         }
     }
 
@@ -565,6 +577,11 @@ impl PassthroughFS {
         for observer in observers.iter() {
             observer.update(&event);
         }
+    }
+
+    /// ファイルパスを無視リストに含まれているかチェック
+    fn should_ignore(&self, path: &Path) -> bool {
+        self.ignore_paths.iter().any(|p| path.starts_with(p.as_str()))
     }
 }
 
@@ -692,13 +709,15 @@ impl Filesystem for PassthroughFS {
             }
 
             // Modify イベント通知
-            let now = Utc::now();
-            let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-            let event = CanonicalEvent::Modify {
-                path: path.clone(),
-                time,
-            };
-            self.notify_event(event);
+            if !self.should_ignore(&path) {
+                let now = Utc::now();
+                let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                let event = CanonicalEvent::Modify {
+                    path: path.clone(),
+                    time,
+                };
+                self.notify_event(event);
+            }
         }
 
         // Handle mode
@@ -778,13 +797,15 @@ impl Filesystem for PassthroughFS {
                         let attr = metadata_to_attr(ino, &metadata);
 
                         // Create イベント通知
-                        let now = Utc::now();
-                        let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                        let event = CanonicalEvent::Create {
-                            path,
-                            time,
-                        };
-                        self.notify_event(event);
+                        if !self.should_ignore(&path) {
+                            let now = Utc::now();
+                            let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                            let event = CanonicalEvent::Create {
+                                path: path.clone(),
+                                time,
+                            };
+                            self.notify_event(event);
+                        }
 
                         reply.entry(&TTL, &attr, 0);
                     }
@@ -831,13 +852,15 @@ impl Filesystem for PassthroughFS {
                         let attr = metadata_to_attr(ino, &metadata);
 
                         // Create イベント通知
-                        let now = Utc::now();
-                        let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                        let event = CanonicalEvent::Create {
-                            path,
-                            time,
-                        };
-                        self.notify_event(event);
+                        if !self.should_ignore(&path) {
+                            let now = Utc::now();
+                            let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                            let event = CanonicalEvent::Create {
+                                path: path.clone(),
+                                time,
+                            };
+                            self.notify_event(event);
+                        }
 
                         reply.entry(&TTL, &attr, 0);
                     }
@@ -963,14 +986,16 @@ impl Filesystem for PassthroughFS {
         match fs::rename(&src, &dst) {
             Ok(_) => {
                 // Move イベント通知
-                let now = Utc::now();
-                let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                let event = CanonicalEvent::Move {
-                    src,
-                    dst,
-                    time,
-                };
-                self.notify_event(event);
+                if !self.should_ignore(&src) && !self.should_ignore(&dst) {
+                    let now = Utc::now();
+                    let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                    let event = CanonicalEvent::Move {
+                        src: src.clone(),
+                        dst: dst.clone(),
+                        time,
+                    };
+                    self.notify_event(event);
+                }
 
                 reply.ok();
             }
@@ -1055,14 +1080,16 @@ impl Filesystem for PassthroughFS {
                 let fh = self.allocate_fh(file);
 
                 // Open イベント通知
-                let now = Utc::now();
-                let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                let event = CanonicalEvent::Open {
-                    path,
-                    pid: Some(req.pid()),
-                    time,
-                };
-                self.notify_event(event);
+                if !self.should_ignore(&path) {
+                    let now = Utc::now();
+                    let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                    let event = CanonicalEvent::Open {
+                        path: path.clone(),
+                        pid: Some(req.pid()),
+                        time,
+                    };
+                    self.notify_event(event);
+                }
 
                 let mut open_flags = 0;
                 #[cfg(target_os = "linux")]
@@ -1152,22 +1179,24 @@ impl Filesystem for PassthroughFS {
         match file.write(data) {
             Ok(n) => {
                 // Write イベント通知
-                let now = Utc::now();
-                let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                let event = CanonicalEvent::Write {
-                    path: path.clone(),
-                    content: data.to_vec(),
-                    time: time.clone(),
-                };
-                self.notify_event(event);
-
-                // Append フラグがある場合は Append イベントも通知
-                if flags & libc::O_APPEND != 0 {
-                    let append_event = CanonicalEvent::Append {
-                        path,
-                        time,
+                if !self.should_ignore(&path) {
+                    let now = Utc::now();
+                    let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                    let event = CanonicalEvent::Write {
+                        path: path.clone(),
+                        content: data.to_vec(),
+                        time: time.clone(),
                     };
-                    self.notify_event(append_event);
+                    self.notify_event(event);
+
+                    // Append フラグがある場合は Append イベントも通知
+                    if flags & libc::O_APPEND != 0 {
+                        let append_event = CanonicalEvent::Append {
+                            path: path.clone(),
+                            time,
+                        };
+                        self.notify_event(append_event);
+                    }
                 }
 
                 reply.written(n as u32);
@@ -1520,13 +1549,15 @@ impl Filesystem for PassthroughFS {
                         let fh = self.allocate_fh(file);
 
                         // Create イベント通知
-                        let now = Utc::now();
-                        let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                        let event = CanonicalEvent::Create {
-                            path,
-                            time,
-                        };
-                        self.notify_event(event);
+                        if !self.should_ignore(&path) {
+                            let now = Utc::now();
+                            let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                            let event = CanonicalEvent::Create {
+                                path: path.clone(),
+                                time,
+                            };
+                            self.notify_event(event);
+                        }
 
                         let mut open_flags = 0;
                         #[cfg(target_os = "linux")]
