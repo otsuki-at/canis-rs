@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use crate::error::{Result, WatcherError};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct BasicSettings {
@@ -8,7 +8,9 @@ pub struct BasicSettings {
     pub targets: Option<Vec<String>>,
     pub ignore: Option<Vec<String>>,
     pub logfile: Option<String>,
-    pub hashdir: Option<String>,
+    pub hashdir: Option<PathBuf>,
+    pub token: Option<String>,
+    pub repo: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

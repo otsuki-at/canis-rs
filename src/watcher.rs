@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 use notify::{Watcher, RecursiveMode, Event, EventKind, RecommendedWatcher};
-use notify::event::{ModifyKind};
+use notify::event::{ModifyKind, RenameMode};
 use std::sync::mpsc::channel;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::path::Path;
@@ -133,6 +133,15 @@ impl FileWatcher {
                     events.push(CanonicalEvent::Modify {
                         path,
                         time: time.clone()
+                    });
+                }
+            }
+            EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
+                if let [src, dst] = event.paths.as_slice() {
+                    events.push(CanonicalEvent::Move {
+                        src: src.clone(),
+                        dst: dst.clone(),
+                        time,
                     });
                 }
             }

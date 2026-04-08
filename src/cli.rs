@@ -46,9 +46,17 @@ pub struct InitArgs {
     #[arg(long, value_delimiter = ',')]
     pub ignore: Option<Vec<String>>,
 
-    /// Local git repository path for hash storage and publication
+        /// Directory to store daily hash files
     #[arg(long)]
     pub hashdir: Option<PathBuf>,
+
+    /// GitHub Personal Access Token
+    #[arg(long)]
+    pub token: Option<String>,
+
+    /// GitHub repository name to store daily hash files
+    #[arg(long)]
+    pub repo: Option<String>,
 
     /// Path to daemon stdout log file
     #[cfg(target_os = "macos")]
@@ -68,9 +76,17 @@ pub struct InitArgs {
     #[arg(short = 'b', long = "binary")]
     pub binary: Option<PathBuf>,
 
-    /// Generate only service file for daily publishing (canis publish)
+    /// Generate service file for daily publishing (canis publish)
     #[arg(short = 'p', long = "publish")]
     pub publish: Option<PathBuf>,
+
+    /// Date to create daily hash
+    #[arg(long)]
+    pub date: Option<String>,
+
+    /// Time to run the publish command daily (e.g. 09:00)
+    #[arg(long)]
+    pub schedule: Option<String>,
 }
 
 #[derive(Args)]
@@ -117,6 +133,26 @@ pub struct PublishArgs {
     /// Specify config file
     #[arg(short = 'c', long = "config")]
     pub config: Option<PathBuf>,
+
+    /// Path to log file for digest
+    #[arg(long)]
+    pub logfile: Option<String>,
+
+    /// Date to create daily hash
+    #[arg(long, default_value = "today")]
+    pub date: String,
+
+    /// Directory to store daily hash files
+    #[arg(long)]
+    pub hashdir: Option<PathBuf>,
+
+    /// GitHub Personal Access Token
+    #[arg(long)]
+    pub token: Option<String>,
+
+    /// GitHub repository name to store daily hash files
+    #[arg(long)]
+    pub repo: Option<String>,
 }
 
 impl StartArgs {
@@ -126,5 +162,14 @@ impl StartArgs {
                 !t.is_empty() && t.iter().all(|s| !s.is_empty())
             })
             && self.logfile.as_ref().map_or(false, |l| !l.is_empty())
+    }
+}
+
+impl PublishArgs {
+    pub fn is_complete(&self) -> bool {
+        self.logfile.as_ref().map_or(false, |l| !l.is_empty())
+            && self.hashdir.as_ref().map_or(false, |l| !l.as_os_str().is_empty())
+            && self.token.as_ref().map_or(false, |l| !l.is_empty())
+            && self.repo.as_ref().map_or(false, |l| !l.is_empty())
     }
 }

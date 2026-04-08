@@ -2,11 +2,12 @@ use std::fs::{self, OpenOptions};
 use std::io::{Write, Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use crate::error::Result;
+use crate::error::{Result, WatcherError};
 
 pub trait Logger: Send + Sync {
     fn log(&self, message: &str);
     fn find_latest_hash(&self, path: &str) -> Result<Option<String>>;
+    fn get_entries(&self, date_prefix: &str) -> Result<Vec<String>>;
 }
 
 pub struct FileLogger {
@@ -126,6 +127,19 @@ impl Logger for FileLogger {
 
     fn find_latest_hash(&self, path: &str) -> Result<Option<String>> {
         self.find_hash_reverse(path)
+    }
+
+    fn get_entries(&self, date_prefix: &str) -> Result<Vec<String>> {
+        let content = fs::read_to_string(&self.path)
+            .map_err(|e| WatcherError::IoError(e))?;
+
+        let entries: Vec<String> = content
+            .lines()
+            .filter(|line| line.starts_with(date_prefix))
+            .map(|line| line.to_string())
+            .collect();
+
+        Ok(entries)
     }
 }
 
