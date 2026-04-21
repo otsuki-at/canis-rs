@@ -2,12 +2,12 @@ mod commands;
 mod watcher;
 mod processor;
 mod adapter;
-mod logger;
 mod config;
 mod observer;
 mod error;
 mod event;
 mod cli;
+mod db;
 
 use error::Result;
 use cli::{Cli, Commands};

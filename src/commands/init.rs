@@ -3,12 +3,10 @@ use std::fs;
 use std::path::PathBuf;
 use dialoguer::{Input, Confirm};
 use chrono::Utc;
+use directories_next::ProjectDirs;
 
-use crate::logger::{self};
 use crate::error::WatcherError;
 use crate::cli::InitArgs;
-
-use directories_next::ProjectDirs;
 
 pub fn init(args: InitArgs) -> Result<()>{
     if args.config.is_none() && args.start.is_none() && args.publish.is_none() {
@@ -147,34 +145,39 @@ fn init_config(args: &InitArgs) -> Result<()>{
         .collect::<Vec<_>>()
         .join(", ");
 
+
+pub fn get_default_log_path(app_name: &str) -> Option<PathBuf> {
+    directories_next::ProjectDirs::from("", "", app_name)
+        .map(|proj_dirs| {
+            let data_dir = proj_dirs.data_dir();
+            data_dir.join("canis.log")
+        })
+}
     // ログファイルのパスを取得
-    let logfile = match &args.logfile {
+    let dbfile = match &args.dbfile {
         Some(w) => w.clone(),
         None => {
-            let default_logfile_path = logger::get_default_log_path("canis")
-                .ok_or_else(|| {
-                    eprintln!("Failed to retrieve XDG configuration directory");
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotFound,
-                        "XDG data directory not available"
-                    )
-                })?;
+            let proj_dirs = ProjectDirs::from("", "", "canis")
+                .ok_or_else(|| WatcherError::ConfigError(
+                    "Failed to retrieve XDG configuration directory".to_string()
+                ))?;
+            let default_dbfile = proj_dirs
+                .data_dir()
+                .join("canis.db");
 
-            let default_logfile_path_str = default_logfile_path
+            let default_dbfile_path_str = default_dbfile
                 .to_string_lossy()
                 .to_string()
                 .replace('\\', "/");
 
-            PathBuf::from(
-                Input::new()
-                    .with_prompt("Enter logfile path")
-                    .default(default_logfile_path_str)
-                    .interact_text()?
-            )
+            Input::new()
+                .with_prompt("Enter databasefile path")
+                .default(default_dbfile_path_str)
+                .interact_text()?
         }
     };
 
-    let logfile_display = logfile.display().to_string().replace('\\', "/");
+    let dbfile_display = dbfile.replace('\\', "/");
 
     let token = match &args.token {
         Some(w) => w.clone(),
@@ -214,8 +217,7 @@ fn init_config(args: &InitArgs) -> Result<()>{
     };
 
     let config_content = format!(
-        r#"
-[basic_settings]
+        r#"[basic_settings]
 # Select the watcher implementation: notify or fuse
 watcher = "{watcher}"
 
@@ -227,9 +229,9 @@ targets = [{targets}]
 # Any user actions on these paths will not be monitored or recorded
 ignore = [{ignore}]
 
-# Specify the path to the log file where digest will be stored
+# Specify the path to the database file where digest will be stored
 # Do not place the log file under any monitored path to avoid infinite loops
-logfile = "{logfile}"
+dbfile = "{dbfile}"
 
 # Specify the GitHub access token used to publish hashes
 # This token must have sufficient permissions to access the target repository
@@ -247,7 +249,7 @@ repo = "{repo}"
         watcher = watcher,
         targets = targets,
         ignore=ignore,
-        logfile = logfile_display,
+        dbfile = dbfile_display,
         token = token,
         hashdir = hashdir_display,
         repo = repo,

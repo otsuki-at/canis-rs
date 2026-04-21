@@ -1,18 +1,18 @@
-use std::sync::Arc;
 use anyhow::Result;
 use std::fs::File;
 use std::path::PathBuf;
+use directories_next::ProjectDirs;
 #[cfg(unix)]
 use daemonize::Daemonize;
 
 use crate::config::Config;
-use crate::logger::{self, Logger, FileLogger};
 use crate::watcher;
 use crate::adapter;
 use crate::processor;
 use crate::observer::Subject;
 use crate::error::WatcherError;
 use crate::cli::StartArgs;
+use crate::db::EventRepository;
 
 pub fn start(args: StartArgs) -> Result<()>{
     let config = if args.is_complete() {
@@ -39,20 +39,18 @@ pub fn start(args: StartArgs) -> Result<()>{
             "targets not specified".to_string()
         ))?;
 
-    let logfile_path = args.logfile
+    let dbfile_path = args.dbfile
         .filter(|l| !l.is_empty())
-        .or_else(|| settings.and_then(|s| s.logfile.clone()))
+        .or_else(|| settings.and_then(|s| s.dbfile.clone()))
         .or_else(|| {
-            logger::get_default_log_path("canis")
-                .map(|p| p.to_string_lossy().into_owned())
+            let proj_dirs = ProjectDirs::from("", "", "canis")?;
+            Some(proj_dirs.data_dir().join("canis.db").display().to_string())
         })
         .ok_or_else(|| WatcherError::ConfigError(
             "Failed to determine log file path".to_string()
         ))?;
 
-    let logger: Arc<dyn Logger> = Arc::new(FileLogger::new(
-        &logfile_path
-    )?);
+    let db = EventRepository::new(&dbfile_path)?;
 
     let user_ignore_paths = args.ignore
         .filter(|t| !t.is_empty() && t.iter().all(|s| !s.is_empty()))
@@ -61,7 +59,12 @@ pub fn start(args: StartArgs) -> Result<()>{
             "ignore paths not specified".to_string()
         ))?;
 
-    let ignore_paths: Vec<String> = std::iter::once(logfile_path.clone())
+    let ignore_paths: Vec<String> = [
+            dbfile_path.clone(),
+            format!("{}-wal", dbfile_path),
+            format!("{}-shm", dbfile_path),
+        ]
+        .into_iter()
         .chain(user_ignore_paths)
         .collect();
 
@@ -69,7 +72,7 @@ pub fn start(args: StartArgs) -> Result<()>{
     println!("watcher system: {}", watcher_system);
     println!("targets: {}", targets.join(", "));
     println!("ignore_paths: {}", ignore_paths.join(", "));
-    println!("logfile: {}\n", logfile_path);
+    println!("database_file: {}\n", dbfile_path);
 
     #[cfg(unix)]
     if args.daemon {
@@ -87,8 +90,9 @@ pub fn start(args: StartArgs) -> Result<()>{
 
     let processor_level = match watcher_system.as_str() {
         "notify" => 1,
+        // 現在は，レベル3相当の処理部の機能が実現できていないため，fuse でもレベル2にしている．実装後は3に変更する．
         #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
-        "fuse"   => 3,
+        "fuse"   => 2,
         _        => 1,
     };
 
@@ -99,7 +103,7 @@ pub fn start(args: StartArgs) -> Result<()>{
 
     // 処理部: ProcessorObserverを作成
     let processor = processor::ProcessorObserver::new(
-        Arc::clone(&logger)
+        db
     );
 
     // 中間層にプロセッサーをObserverとして登録 (オブザーバパターン第2段階)

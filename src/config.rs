@@ -7,7 +7,7 @@ pub struct BasicSettings {
     pub watcher: Option<String>,
     pub targets: Option<Vec<String>>,
     pub ignore: Option<Vec<String>>,
-    pub logfile: Option<String>,
+    pub dbfile: Option<String>,
     pub hashdir: Option<PathBuf>,
     pub token: Option<String>,
     pub repo: Option<String>,

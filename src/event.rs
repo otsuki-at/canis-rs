@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::db::{OperationType};
+
 #[derive(Debug, Clone)]
 pub enum CanonicalEvent {
     Create { path: PathBuf, time: String },
@@ -11,25 +13,14 @@ pub enum CanonicalEvent {
 }
 
 impl CanonicalEvent {
-    pub fn path(&self) -> &PathBuf {
+    pub fn operation_type(&self) -> OperationType {
         match self {
-            Self::Create { path, .. } => path,
-            Self::Modify { path, .. } => path,
-            Self::Move { dst, .. } => dst,
-            Self::Write { path, .. } => path,
-            Self::Open { path, .. } => path,
-            Self::Append { path, .. } => path,
-        }
-    }
-
-    pub fn time(&self) -> &str {
-        match self {
-            Self::Create { time, .. } => time,
-            Self::Modify { time, .. } => time,
-            Self::Move { time, .. } => time,
-            Self::Write { time, .. } => time,
-            Self::Open { time, .. } => time,
-            Self::Append { time, .. } => time,
+            CanonicalEvent::Create { .. }  => OperationType::Create,
+            CanonicalEvent::Modify { .. }  => OperationType::Modify,
+            CanonicalEvent::Move { .. }    => OperationType::Move,
+            CanonicalEvent::Write { .. }   => OperationType::Write,
+            CanonicalEvent::Open { .. }    => OperationType::Open,
+            CanonicalEvent::Append { .. }  => OperationType::Append,
         }
     }
 }

@@ -7,7 +7,7 @@ pub enum WatcherError {
     IoError(std::io::Error),
     UnsupportedSystem(String),
     HashError(String),
-    // 新しいバリアントを追加（anyhow::Error を扱う）
+    DatabaseError(String),
     Other(String),
 }
 
@@ -20,6 +20,7 @@ impl fmt::Display for WatcherError {
             Self::UnsupportedSystem(s) => write!(f, "Unsupported system: {}", s),
             Self::HashError(s) => write!(f, "Hash computation error: {}", s),
             Self::Other(s) => write!(f, "Error: {}", s),
+            Self::DatabaseError(s) => write!(f, "Database error: {}", s),
         }
     }
 }
@@ -48,6 +49,12 @@ impl From<toml::de::Error> for WatcherError {
 impl From<anyhow::Error> for WatcherError {
     fn from(err: anyhow::Error) -> Self {
         Self::Other(err.to_string())
+    }
+}
+
+impl From<rusqlite::Error> for WatcherError {
+    fn from(err: rusqlite::Error) -> Self {
+        Self::DatabaseError(err.to_string())
     }
 }
 

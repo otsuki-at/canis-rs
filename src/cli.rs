@@ -38,9 +38,9 @@ pub struct InitArgs {
     #[arg(long, value_delimiter = ',')]
     pub targets: Option<Vec<PathBuf>>,
 
-    /// Path to log file for digest
+    /// Path to database file for digest
     #[arg(long)]
-    pub logfile: Option<PathBuf>,
+    pub dbfile: Option<String>,
 
     /// Paths to ignore by the file system watcher
     #[arg(long, value_delimiter = ',')]
@@ -103,9 +103,9 @@ pub struct StartArgs {
     #[arg(long, value_delimiter = ',')]
     pub targets: Option<Vec<String>>,
 
-    /// Path to log file for digest
+    /// Path to database file for digest
     #[arg(long)]
-    pub logfile: Option<String>,
+    pub dbfile: Option<String>,
 
     /// Paths to ignore by the file system watcher
     #[arg(long, value_delimiter = ',')]
@@ -134,9 +134,9 @@ pub struct PublishArgs {
     #[arg(short = 'c', long = "config")]
     pub config: Option<PathBuf>,
 
-    /// Path to log file for digest
+    /// Path to database file for digest
     #[arg(long)]
-    pub logfile: Option<String>,
+    pub dbfile: Option<String>,
 
     /// Date to create daily hash
     #[arg(long, default_value = "today")]
@@ -161,13 +161,13 @@ impl StartArgs {
             && self.targets.as_ref().map_or(false, |t| {
                 !t.is_empty() && t.iter().all(|s| !s.is_empty())
             })
-            && self.logfile.as_ref().map_or(false, |l| !l.is_empty())
+            && self.dbfile.as_ref().map_or(false, |l| !l.is_empty())
     }
 }
 
 impl PublishArgs {
     pub fn is_complete(&self) -> bool {
-        self.logfile.as_ref().map_or(false, |l| !l.is_empty())
+        self.dbfile.as_ref().map_or(false, |l| !l.is_empty())
             && self.hashdir.as_ref().map_or(false, |l| !l.as_os_str().is_empty())
             && self.token.as_ref().map_or(false, |l| !l.is_empty())
             && self.repo.as_ref().map_or(false, |l| !l.is_empty())
