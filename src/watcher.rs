@@ -5,9 +5,11 @@ use std::sync::mpsc::channel;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::path::Path;
 use chrono::Utc;
+use sysinfo::{System,Pid, ProcessesToUpdate, ProcessRefreshKind, UpdateKind};
+use serde_json;
 
 use crate::error::{Result, WatcherError};
-use crate::event::CanonicalEvent;
+use crate::event::{CanonicalEvent, FileEvent, ProcessInfo};
 use crate::observer::{Observer, Subject};
 
 /// 監視システムの種類
@@ -89,9 +91,6 @@ impl FileWatcher {
 
         println!("Press Ctrl+C to exit\n");
 
-        // observersをcloneして、イベント通知に使用
-        let observers = Arc::clone(&self.observers);
-
         // イベント受信ループ
         for (res, time) in rx {
             match res {
@@ -104,7 +103,8 @@ impl FileWatcher {
 
                     // 各Observerに通知
                     for canonical_event in canonical_events {
-                        self.notify(&canonical_event);
+                        let file_event = FileEvent{event: canonical_event, process_info: None};
+                        self.notify(&file_event);
                     }
                 }
                 Err(e) => eprintln!("Watcher error: {:?}", e),
@@ -386,7 +386,7 @@ impl Subject for FileWatcher {
         observers.push(observer);
     }
 
-    fn notify(&self, event: &CanonicalEvent) {
+    fn notify(&self, event: &FileEvent) {
         let observers = self.observers.read().unwrap();
         for observer in observers.iter() {
             observer.update(event);
@@ -493,6 +493,7 @@ pub struct PassthroughFS {
     observers: Arc<RwLock<Vec<Box<dyn Observer>>>>,
     // 無視するファイルパスのリスト
     ignore_paths: Vec<String>,
+    sys: System,
 }
 
 #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
@@ -520,6 +521,7 @@ impl PassthroughFS {
             next_fh: Arc::new(Mutex::new(1)),
             observers,
             ignore_paths: ignore_paths.to_vec(),
+            sys: System::new(),
         }
     }
 
@@ -581,7 +583,7 @@ impl PassthroughFS {
     }
 
     /// イベントを通知する（追加）
-    fn notify_event(&self, event: CanonicalEvent) {
+    fn notify_event(&self, event: &FileEvent) {
         let observers = self.observers.read().unwrap();
         for observer in observers.iter() {
             observer.update(&event);
@@ -591,6 +593,28 @@ impl PassthroughFS {
     /// ファイルパスを無視リストに含まれているかチェック
     fn should_ignore(&self, path: &Path) -> bool {
         self.ignore_paths.iter().any(|p| path.starts_with(p.as_str()))
+    }
+
+    pub fn get_process_info(&mut self, pid: u32) -> Option<ProcessInfo> {
+        self.sys.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing()
+                .with_cmd(UpdateKind::Always)
+                .with_exe(UpdateKind::Always),); // 最新情報に更新
+
+        let sysinfo_pid = Pid::from(pid as usize);
+        self.sys.process(sysinfo_pid).map(|p| ProcessInfo {
+            start_time: p.start_time(),
+            pid:       pid as i32,
+            ppid:      p.parent().map(|p| p.as_u32() as i32).unwrap_or(-1),
+            exe:       p.exe().map(|e| e.display().to_string()).unwrap_or_default(),
+            cmd:       serde_json::to_string(
+                            &p.cmd().iter()
+                                .map(|s| s.to_string_lossy().into_owned())
+                                .collect::<Vec<_>>()
+                        ).unwrap_or_default(),
+        })
     }
 }
 
@@ -676,7 +700,7 @@ impl Filesystem for PassthroughFS {
 
     fn setattr(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         ino: u64,
         mode: Option<u32>,
         uid: Option<u32>,
@@ -725,7 +749,12 @@ impl Filesystem for PassthroughFS {
                     path: path.clone(),
                     time,
                 };
-                self.notify_event(event);
+
+                let pid = req.pid();
+                let process_info = self.get_process_info(pid);
+
+                let file_event = FileEvent { event, process_info};
+                self.notify_event(&file_event);
             }
         }
 
@@ -774,7 +803,7 @@ impl Filesystem for PassthroughFS {
 
     fn mknod(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: u64,
         name: &OsStr,
         mode: u32,
@@ -813,7 +842,11 @@ impl Filesystem for PassthroughFS {
                                 path: path.clone(),
                                 time,
                             };
-                            self.notify_event(event);
+                            let pid = req.pid();
+                            let process_info = self.get_process_info(pid);
+
+                            let file_event = FileEvent { event, process_info};
+                            self.notify_event(&file_event);
                         }
 
                         reply.entry(&TTL, &attr, 0);
@@ -831,7 +864,7 @@ impl Filesystem for PassthroughFS {
 
     fn mkdir(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: u64,
         name: &OsStr,
         mode: u32,
@@ -868,7 +901,11 @@ impl Filesystem for PassthroughFS {
                                 path: path.clone(),
                                 time,
                             };
-                            self.notify_event(event);
+                            let pid = req.pid();
+                            let process_info = self.get_process_info(pid);
+
+                            let file_event = FileEvent { event, process_info};
+                            self.notify_event(&file_event);
                         }
 
                         reply.entry(&TTL, &attr, 0);
@@ -965,7 +1002,7 @@ impl Filesystem for PassthroughFS {
 
     fn rename(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: u64,
         name: &OsStr,
         newparent: u64,
@@ -1003,7 +1040,11 @@ impl Filesystem for PassthroughFS {
                         dst: dst.clone(),
                         time,
                     };
-                    self.notify_event(event);
+                    let pid = req.pid();
+                    let process_info = self.get_process_info(pid);
+
+                    let file_event = FileEvent { event, process_info};
+                    self.notify_event(&file_event);
                 }
 
                 reply.ok();
@@ -1094,10 +1135,13 @@ impl Filesystem for PassthroughFS {
                     let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
                     let event = CanonicalEvent::Open {
                         path: path.clone(),
-                        pid: Some(req.pid()),
                         time,
                     };
-                    self.notify_event(event);
+                    let pid = req.pid();
+                    let process_info = self.get_process_info(pid);
+
+                    let file_event = FileEvent { event, process_info};
+                    self.notify_event(&file_event);
                 }
 
                 let mut open_flags = 0;
@@ -1154,7 +1198,7 @@ impl Filesystem for PassthroughFS {
 
     fn write(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         ino: u64,
         fh: u64,
         offset: i64,
@@ -1191,21 +1235,26 @@ impl Filesystem for PassthroughFS {
                 if !self.should_ignore(&path) {
                     let now = Utc::now();
                     let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                    let event = CanonicalEvent::Write {
-                        path: path.clone(),
-                        content: data.to_vec(),
-                        time: time.clone(),
-                    };
-                    self.notify_event(event);
 
-                    // Append フラグがある場合は Append イベントも通知
-                    if flags & libc::O_APPEND != 0 {
-                        let append_event = CanonicalEvent::Append {
+                        // O_APPEND フラグで Append/Write を切り替え
+                    let event = if flags & libc::O_APPEND != 0 {
+                        CanonicalEvent::Append {
                             path: path.clone(),
                             time,
-                        };
-                        self.notify_event(append_event);
-                    }
+                        }
+                    } else {
+                        CanonicalEvent::Write {
+                            path: path.clone(),
+                            content: data.to_vec(),
+                            time,
+                        }
+                    };
+
+                    let pid = req.pid();
+                    let process_info = self.get_process_info(pid);
+
+                    let file_event = FileEvent { event, process_info};
+                    self.notify_event(&file_event);
                 }
 
                 reply.written(n as u32);
@@ -1516,7 +1565,7 @@ impl Filesystem for PassthroughFS {
 
     fn create(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         parent: u64,
         name: &OsStr,
         mode: u32,
@@ -1565,7 +1614,12 @@ impl Filesystem for PassthroughFS {
                                 path: path.clone(),
                                 time,
                             };
-                            self.notify_event(event);
+
+                            let pid = req.pid();
+                            let process_info = self.get_process_info(pid);
+
+                            let file_event = FileEvent { event, process_info};
+                            self.notify_event(&file_event);
                         }
 
                         let mut open_flags = 0;

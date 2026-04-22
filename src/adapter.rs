@@ -1,4 +1,4 @@
-use crate::event::CanonicalEvent;
+use crate::event::{CanonicalEvent, FileEvent};
 use crate::observer::{Observer, Subject};
 
 pub struct EventAdapter {
@@ -18,8 +18,14 @@ impl EventAdapter {
 }
 
 impl Observer for EventAdapter {
-    fn update(&self, event: &CanonicalEvent) {
-        if let Some(converted) = self.strategy.convert(event.clone()) {
+    fn update(&self, file_event: &FileEvent) {
+        if let Some(converted) = self.strategy
+            .convert(file_event.event.clone())
+            .map(|event| FileEvent {
+                event,
+                process_info: file_event.process_info.clone(),
+            })
+        {
             self.notify(&converted);
         }
     }
@@ -30,7 +36,7 @@ impl Subject for EventAdapter {
         self.observers.push(observer);
     }
 
-    fn notify(&self, event: &CanonicalEvent) {
+    fn notify(&self, event: &FileEvent) {
         for observer in &self.observers {
             observer.update(event);
         }

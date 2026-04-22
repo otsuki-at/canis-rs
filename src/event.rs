@@ -1,6 +1,11 @@
 use std::path::PathBuf;
 
-use crate::db::{OperationType};
+use crate::db::{OperationType, Process};
+
+pub struct FileEvent {
+    pub event: CanonicalEvent,
+    pub process_info: Option<ProcessInfo>,
+}
 
 #[derive(Debug, Clone)]
 pub enum CanonicalEvent {
@@ -8,8 +13,17 @@ pub enum CanonicalEvent {
     Modify { path: PathBuf, time: String },
     Move { src: PathBuf, dst: PathBuf, time: String },
     Write { path: PathBuf, content: Vec<u8>, time: String },
-    Open { path: PathBuf, pid: Option<u32>, time: String },
+    Open { path: PathBuf, time: String },
     Append { path: PathBuf, time: String },
+}
+
+#[derive(Clone)]
+pub struct ProcessInfo {
+    pub start_time:  u64,
+    pub pid:        i32,
+    pub ppid:       i32,
+    pub exe:        String,
+    pub cmd:        String,
 }
 
 impl CanonicalEvent {

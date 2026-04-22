@@ -1,8 +1,11 @@
+use std::fs::File;
 use std::sync::Mutex;
-use crate::event::CanonicalEvent;
+use chrono::{Utc, TimeZone};
+
+use crate::event::{CanonicalEvent, FileEvent};
 use crate::observer::Observer;
 use crate::error::{Result, WatcherError};
-use crate::db::{EventRepository, Digest, Operation};
+use crate::db::{EventRepository, Digest, Operation, Process};
 
 /// ProcessorObserver: ProcessorStrategyをObserverインターフェースでラップ
 pub struct ProcessorObserver {
@@ -28,8 +31,8 @@ impl ProcessorObserver {
         Ok(encode(hasher.finalize()))
     }
 
-    fn process(&self, event: &CanonicalEvent) {
-        let (digest, operation) = match event {
+    fn process(&self, file_event: &FileEvent) {
+        let (digest, operation) = match &file_event.event {
             CanonicalEvent::Create { path, time } | CanonicalEvent::Modify { path, time } => {
                 match self.compute_hash(path) {
                     Ok(hash) => (
@@ -39,11 +42,9 @@ impl ProcessorObserver {
                         },
                         Operation{
                             timestamp: time.clone(),
-                            operation: event.operation_type(),
+                            operation: file_event.event.operation_type(),
                             filepath: path.display().to_string(),
                             src_path: None,
-                            pid: None,
-                            ppid: None,
                         }
                     ),
                     Err(e) => {
@@ -63,11 +64,9 @@ impl ProcessorObserver {
                         },
                         Operation{
                             timestamp: time.clone(),
-                            operation: event.operation_type(),
+                            operation: file_event.event.operation_type(),
                             filepath: dst.display().to_string(),
                             src_path: Some(src_str),
-                            pid: None,
-                            ppid: None,
                         }
                     ),
                     Ok(None) => {
@@ -80,11 +79,9 @@ impl ProcessorObserver {
                                 },
                                 Operation{
                                     timestamp: time.clone(),
-                                    operation: event.operation_type(),
+                                    operation: file_event.event.operation_type(),
                                     filepath: dst.display().to_string(),
                                     src_path: Some(src_str),
-                                    pid: None,
-                                    ppid: None,
                                 }
                             ),
                             Err(e) => {
@@ -104,12 +101,33 @@ impl ProcessorObserver {
         };
 
         let digest_id = self.db.lock().unwrap().insert_digest(&digest).unwrap();
-        let _ = self.db.lock().unwrap().insert_operation(&digest_id, &operation);
+        let operation_id = self.db.lock().unwrap().insert_operation(&digest_id, &operation).unwrap();
+
+        if let Some(process_info) = &file_event.process_info{
+            let starttime = Utc
+                .timestamp_opt(process_info.start_time as i64, 0)
+                .single()
+                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_default();
+
+            let process = Process {
+                starttime,
+                pid: process_info.pid,
+                ppid: process_info.ppid,
+                exe: process_info.exe.clone(),
+                cmd: process_info.cmd.clone()
+            };
+
+            // let _ = self.db.lock().unwrap().insert_process(&operation_id, &process);
+            if let Err(e) = self.db.lock().unwrap().insert_process(&operation_id, &process) {
+                eprintln!("insert_process error: {:?}", e);
+            }
+        }
     }
 }
 
 impl Observer for ProcessorObserver {
-    fn update(&self, event: &CanonicalEvent) {
+    fn update(&self, event: &FileEvent) {
         self.process(event);
     }
 }

@@ -34,8 +34,14 @@ pub struct Operation {
     pub operation: OperationType,
     pub filepath:  String,
     pub src_path:  Option<String>,
-    pub pid:       Option<i32>,
-    pub ppid:      Option<i32>,
+}
+
+pub struct Process {
+    pub starttime: String, // DateTime<Utc>,        // yyyy-mm-ddThh:mm:ss.ffffff
+    pub pid:        i32,
+    pub ppid:       i32,
+    pub exe:        String,
+    pub cmd:        String,
 }
 
 pub struct EventRepository {
@@ -62,15 +68,22 @@ impl EventRepository {
                 timestamp TEXT NOT NULL,
                 operation TEXT NOT NULL CHECK(operation IN ('Create', 'Modify', 'Move', 'Open', 'Append', 'Write')),
                 filepath  TEXT NOT NULL,
-                src_path  TEXT,
-                pid       INTEGER,
-                ppid      INTEGER
+                src_path  TEXT
+            );
+            CREATE TABLE IF NOT EXISTS Process (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                operation_id INTEGER NOT NULL  REFERENCES Operation(id),
+                starttime TEXT NOT NULL,
+                pid       INTEGER NOT NULL,
+                ppid      INTEGER NOT NULL,
+                exe       TEXT NOT NULL,
+                cmd       TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_path_time ON Digest (filepath, created_at);
             CREATE INDEX IF NOT EXISTS idx_hash_time ON Digest (hash, created_at);
             CREATE INDEX IF NOT EXISTS idx_time      ON Digest (created_at);
-            CREATE INDEX IF NOT EXISTS idx_pid_time  ON Operation (pid, timestamp);
-            CREATE INDEX IF NOT EXISTS idx_ppid_time ON Operation (ppid, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_pid_time  ON Process (pid, starttime);
+            CREATE INDEX IF NOT EXISTS idx_ppid_time ON Process (ppid, starttime);
         ")?;
 
         Ok(Self { conn })
@@ -90,16 +103,30 @@ impl EventRepository {
 
     pub fn insert_operation(&self, digest_id: &i64, event: &Operation) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO Operation (digest_id, timestamp, operation, filepath, src_path, pid, ppid)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO Operation (digest_id, timestamp, operation, filepath, src_path)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 digest_id,
                 event.timestamp, // .to_rfc3339_opts(SecondsFormat::Micros, true),
                 event.operation.as_str(),
                 event.filepath,
                 event.src_path,
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn insert_process(&self, operation_id: &i64, event: &Process) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO Process (operation_id, starttime, pid, ppid, exe, cmd)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                operation_id,
+                event.starttime, // .to_rfc3339_opts(SecondsFormat::Micros, true),
                 event.pid,
                 event.ppid,
+                event.exe,
+                event.cmd,
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
