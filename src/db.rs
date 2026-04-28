@@ -1,5 +1,6 @@
 use rusqlite::{Connection, Result, params};
 use chrono::{DateTime, Utc, SecondsFormat};
+use url::Url;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OperationType {
@@ -25,15 +26,15 @@ impl OperationType {
 }
 
 pub struct Digest {
-    pub filepath:  String,
+    pub uri:       Url,
     pub hash:      String,
 }
 
 pub struct Operation {
     pub timestamp: String, // DateTime<Utc>,        // yyyy-mm-ddThh:mm:ss.ffffff
     pub operation: OperationType,
-    pub filepath:  String,
-    pub src_path:  Option<String>,
+    pub uri:       Url,
+    pub src_path:  Option<Url>,
 }
 
 pub struct Process {
@@ -59,7 +60,7 @@ impl EventRepository {
             CREATE TABLE IF NOT EXISTS Digest (
                 id        INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_at TEXT NOT NULL DEFAULT (DATETIME('now')),
-                filepath  TEXT NOT NULL,
+                uri       TEXT NOT NULL,
                 hash      TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS Operation (
@@ -67,7 +68,7 @@ impl EventRepository {
                 digest_id INTEGER NOT NULL  REFERENCES Digest(id),
                 timestamp TEXT NOT NULL,
                 operation TEXT NOT NULL CHECK(operation IN ('Create', 'Modify', 'Move', 'Open', 'Append', 'Write')),
-                filepath  TEXT NOT NULL,
+                uri       TEXT NOT NULL,
                 src_path  TEXT
             );
             CREATE TABLE IF NOT EXISTS Process (
@@ -79,7 +80,7 @@ impl EventRepository {
                 exe       TEXT NOT NULL,
                 cmd       TEXT
             );
-            CREATE INDEX IF NOT EXISTS idx_path_time ON Digest (filepath, created_at);
+            CREATE INDEX IF NOT EXISTS idx_path_time ON Digest (uri, created_at);
             CREATE INDEX IF NOT EXISTS idx_hash_time ON Digest (hash, created_at);
             CREATE INDEX IF NOT EXISTS idx_time      ON Digest (created_at);
             CREATE INDEX IF NOT EXISTS idx_pid_time  ON Process (pid, starttime);
@@ -91,10 +92,10 @@ impl EventRepository {
 
     pub fn insert_digest(&self, event: &Digest) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO Digest (filepath, hash)
+            "INSERT INTO Digest (uri, hash)
              VALUES (?1, ?2)",
             params![
-                event.filepath,
+                event.uri.as_str(),
                 event.hash,
             ],
         )?;
@@ -103,14 +104,14 @@ impl EventRepository {
 
     pub fn insert_operation(&self, digest_id: &i64, event: &Operation) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO Operation (digest_id, timestamp, operation, filepath, src_path)
+            "INSERT INTO Operation (digest_id, timestamp, operation, uri, src_path)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 digest_id,
                 event.timestamp, // .to_rfc3339_opts(SecondsFormat::Micros, true),
                 event.operation.as_str(),
-                event.filepath,
-                event.src_path,
+                event.uri.as_str(),
+                event.src_path.as_ref().map(|u| u.as_str()),
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
@@ -132,15 +133,15 @@ impl EventRepository {
         Ok(self.conn.last_insert_rowid())
     }
 
-    pub fn latest_hash_by_path(&self, filepath: &str) -> Result<Option<String>> {
+    pub fn latest_hash_by_path(&self, uri: &str) -> Result<Option<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT hash FROM Digest
-            WHERE filepath = ?1
+            WHERE uri = ?1
             ORDER BY created_at DESC
             LIMIT 1"
         )?;
 
-        let mut rows = stmt.query(params![filepath])?;
+        let mut rows = stmt.query(params![uri])?;
 
         match rows.next()? {
             Some(row) => Ok(Some(row.get(0)?)),
@@ -150,7 +151,7 @@ impl EventRepository {
 
     pub fn get_entries(&self, date: &str) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
-            "SELECT created_at, filepath, hash,
+            "SELECT created_at, uri, hash,
             FROM Digest
             WHERE created_at LIKE ?1
             ORDER BY created_at ASC"
@@ -160,11 +161,11 @@ impl EventRepository {
             params![format!("{}%", date)],
             |row| {
                 let timestamp: String       = row.get(0)?;
-                let filepath:  String       = row.get(2)?;
+                let uri:       String       = row.get(2)?;
                 let hash:      String       = row.get(3)?;
 
                 // 既存のログファイルのフォーマットに合わせて文字列化
-                let entry = format!("{},{},{}", timestamp, filepath, hash);
+                let entry = format!("{},{},{}", timestamp, uri, hash);
                 Ok(entry)
             }
         )?;

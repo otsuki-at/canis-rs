@@ -8,6 +8,8 @@ pub enum WatcherError {
     UnsupportedSystem(String),
     HashError(String),
     DatabaseError(String),
+    CanonicalizeFailed(std::io::Error),
+    UriFailed(String),
     Other(String),
 }
 
@@ -19,8 +21,10 @@ impl fmt::Display for WatcherError {
             Self::IoError(e) => write!(f, "I/O error: {}", e),
             Self::UnsupportedSystem(s) => write!(f, "Unsupported system: {}", s),
             Self::HashError(s) => write!(f, "Hash computation error: {}", s),
-            Self::Other(s) => write!(f, "Error: {}", s),
             Self::DatabaseError(s) => write!(f, "Database error: {}", s),
+            Self::CanonicalizeFailed(e) => write!(f, "Path canonicalize failed: {}", e),
+            Self::UriFailed(p)          => write!(f, "URI conversion failed: {}", p),
+            Self::Other(s) => write!(f, "Error: {}", s),
         }
     }
 }

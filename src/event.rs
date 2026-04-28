@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use url::Url;
 
 use crate::db::{OperationType, Process};
 
@@ -9,12 +9,12 @@ pub struct FileEvent {
 
 #[derive(Debug, Clone)]
 pub enum CanonicalEvent {
-    Create { path: PathBuf, time: String },
-    Modify { path: PathBuf, time: String },
-    Move { src: PathBuf, dst: PathBuf, time: String },
-    Write { path: PathBuf, content: Vec<u8>, time: String },
-    Open { path: PathBuf, time: String },
-    Append { path: PathBuf, time: String },
+    Create { uri: Url, time: String },
+    Modify { uri: Url, time: String },
+    Move { src: Url, dst: Url, time: String },
+    Write { uri: Url, content: Vec<u8>, time: String },
+    Open { uri: Url, time: String },
+    Append { uri: Url, time: String },
 }
 
 #[derive(Clone)]

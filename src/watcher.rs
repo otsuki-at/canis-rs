@@ -4,13 +4,27 @@ use notify::event::{ModifyKind, RenameMode};
 use std::sync::mpsc::channel;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::path::Path;
+use std::path::PathBuf;
 use chrono::Utc;
 use sysinfo::{System,Pid, ProcessesToUpdate, ProcessRefreshKind, UpdateKind};
 use serde_json;
+use url::Url;
 
 use crate::error::{Result, WatcherError};
 use crate::event::{CanonicalEvent, FileEvent, ProcessInfo};
 use crate::observer::{Observer, Subject};
+
+fn path_to_uri(path: &Path) -> Result<Url> {
+    // 絶対パスであるかどうか確認
+    if !path.is_absolute() {
+        return Err(WatcherError::UriFailed(
+            format!("Expected absolute path: {}", path.display())
+        ));
+    }
+
+    Url::from_file_path(path)
+        .map_err(|_| WatcherError::UriFailed(path.display().to_string()))
+}
 
 /// 監視システムの種類
 #[derive(Debug, Clone, PartialEq)]
@@ -122,27 +136,33 @@ impl FileWatcher {
         match event.kind {
             EventKind::Create(_) => {
                 for path in event.paths {
-                    events.push(CanonicalEvent::Create {
-                        path,
-                        time: time.clone()
-                    });
+                    if let Some(uri) = path_to_uri(&path)
+                        .map_err(|e| eprintln!("URI conversion failed: {:?}", e))
+                        .ok()
+                    {
+                        events.push(CanonicalEvent::Create { uri, time: time.clone() });
+                    }
                 }
             }
             EventKind::Modify(ModifyKind::Data(_)) => {
                 for path in event.paths {
-                    events.push(CanonicalEvent::Modify {
-                        path,
-                        time: time.clone()
-                    });
+                    if let Some(uri) = path_to_uri(&path)
+                        .map_err(|e| eprintln!("URI conversion failed: {:?}", e))
+                        .ok()
+                    {
+                        events.push(CanonicalEvent::Modify { uri, time: time.clone() });
+                    }
                 }
             }
             EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => {
+                // 両方成功した場合のみ登録
                 if let [src, dst] = event.paths.as_slice() {
-                    events.push(CanonicalEvent::Move {
-                        src: src.clone(),
-                        dst: dst.clone(),
-                        time,
-                    });
+                    if let (Some(src_uri), Some(dst_uri)) = (
+                        path_to_uri(&src).map_err(|e| eprintln!("URI conversion failed: {:?}", e)).ok(),
+                        path_to_uri(&dst).map_err(|e| eprintln!("URI conversion failed: {:?}", e)).ok(),
+                    ) {
+                        events.push(CanonicalEvent::Move { src: src_uri, dst: dst_uri, time });
+                    }
                 }
             }
             _ => {}
@@ -412,7 +432,6 @@ use {
     std::io::{Read, Seek, SeekFrom, Write},
     std::os::unix::ffi::OsStrExt,
     std::os::unix::fs::{MetadataExt, PermissionsExt},
-    std::path::{PathBuf},
     std::sync::Mutex,
     std::time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -743,18 +762,23 @@ impl Filesystem for PassthroughFS {
 
             // Modify イベント通知
             if !self.should_ignore(&path) {
-                let now = Utc::now();
-                let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                let event = CanonicalEvent::Modify {
-                    path: path.clone(),
-                    time,
-                };
+                if let Some(uri) = path_to_uri(&path)
+                    .map_err(|e| eprintln!("URI conversion failed: {:?}", e))
+                    .ok()
+                {
+                    let now = Utc::now();
+                    let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                    let event = CanonicalEvent::Modify {
+                        uri,
+                        time,
+                    };
 
-                let pid = req.pid();
-                let process_info = self.get_process_info(pid);
+                    let pid = req.pid();
+                    let process_info = self.get_process_info(pid);
 
-                let file_event = FileEvent { event, process_info};
-                self.notify_event(&file_event);
+                    let file_event = FileEvent { event, process_info};
+                    self.notify_event(&file_event);
+                }
             }
         }
 
@@ -836,17 +860,22 @@ impl Filesystem for PassthroughFS {
 
                         // Create イベント通知
                         if !self.should_ignore(&path) {
-                            let now = Utc::now();
-                            let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                            let event = CanonicalEvent::Create {
-                                path: path.clone(),
-                                time,
-                            };
-                            let pid = req.pid();
-                            let process_info = self.get_process_info(pid);
+                            if let Some(uri) = path_to_uri(&path)
+                                .map_err(|e| eprintln!("URI conversion failed: {:?}", e))
+                                .ok()
+                            {
+                                let now = Utc::now();
+                                let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                                let event = CanonicalEvent::Create {
+                                    uri,
+                                    time,
+                                };
+                                let pid = req.pid();
+                                let process_info = self.get_process_info(pid);
 
-                            let file_event = FileEvent { event, process_info};
-                            self.notify_event(&file_event);
+                                let file_event = FileEvent { event, process_info};
+                                self.notify_event(&file_event);
+                            }
                         }
 
                         reply.entry(&TTL, &attr, 0);
@@ -895,17 +924,22 @@ impl Filesystem for PassthroughFS {
 
                         // Create イベント通知
                         if !self.should_ignore(&path) {
-                            let now = Utc::now();
-                            let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                            let event = CanonicalEvent::Create {
-                                path: path.clone(),
-                                time,
-                            };
-                            let pid = req.pid();
-                            let process_info = self.get_process_info(pid);
+                            if let Some(uri) = path_to_uri(&path)
+                                .map_err(|e| eprintln!("URI conversion failed: {:?}", e))
+                                .ok()
+                            {
+                                let now = Utc::now();
+                                let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                                let event = CanonicalEvent::Create {
+                                    uri,
+                                    time,
+                                };
+                                let pid = req.pid();
+                                let process_info = self.get_process_info(pid);
 
-                            let file_event = FileEvent { event, process_info};
-                            self.notify_event(&file_event);
+                                let file_event = FileEvent { event, process_info};
+                                self.notify_event(&file_event);
+                            }
                         }
 
                         reply.entry(&TTL, &attr, 0);
@@ -1033,18 +1067,23 @@ impl Filesystem for PassthroughFS {
             Ok(_) => {
                 // Move イベント通知
                 if !self.should_ignore(&src) && !self.should_ignore(&dst) {
-                    let now = Utc::now();
-                    let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                    let event = CanonicalEvent::Move {
-                        src: src.clone(),
-                        dst: dst.clone(),
-                        time,
-                    };
-                    let pid = req.pid();
-                    let process_info = self.get_process_info(pid);
+                    if let (Some(src_uri), Some(dst_uri)) = (
+                        path_to_uri(&src).map_err(|e| eprintln!("URI conversion failed: {:?}", e)).ok(),
+                        path_to_uri(&dst).map_err(|e| eprintln!("URI conversion failed: {:?}", e)).ok(),
+                    ) {
+                        let now = Utc::now();
+                        let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                        let event = CanonicalEvent::Move {
+                            src: src_uri,
+                            dst: dst_uri,
+                            time,
+                        };
+                        let pid = req.pid();
+                        let process_info = self.get_process_info(pid);
 
-                    let file_event = FileEvent { event, process_info};
-                    self.notify_event(&file_event);
+                        let file_event = FileEvent { event, process_info};
+                        self.notify_event(&file_event);
+                    }
                 }
 
                 reply.ok();
@@ -1131,17 +1170,22 @@ impl Filesystem for PassthroughFS {
 
                 // Open イベント通知
                 if !self.should_ignore(&path) {
-                    let now = Utc::now();
-                    let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                    let event = CanonicalEvent::Open {
-                        path: path.clone(),
-                        time,
-                    };
-                    let pid = req.pid();
-                    let process_info = self.get_process_info(pid);
+                    if let Some(uri) = path_to_uri(&path)
+                        .map_err(|e| eprintln!("URI conversion failed: {:?}", e))
+                        .ok()
+                    {
+                        let now = Utc::now();
+                        let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                        let event = CanonicalEvent::Open {
+                            uri,
+                            time,
+                        };
+                        let pid = req.pid();
+                        let process_info = self.get_process_info(pid);
 
-                    let file_event = FileEvent { event, process_info};
-                    self.notify_event(&file_event);
+                        let file_event = FileEvent { event, process_info};
+                        self.notify_event(&file_event);
+                    }
                 }
 
                 let mut open_flags = 0;
@@ -1233,28 +1277,33 @@ impl Filesystem for PassthroughFS {
             Ok(n) => {
                 // Write イベント通知
                 if !self.should_ignore(&path) {
-                    let now = Utc::now();
-                    let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                    if let Some(uri) = path_to_uri(&path)
+                        .map_err(|e| eprintln!("URI conversion failed: {:?}", e))
+                        .ok()
+                    {
+                        let now = Utc::now();
+                        let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
 
-                        // O_APPEND フラグで Append/Write を切り替え
-                    let event = if flags & libc::O_APPEND != 0 {
-                        CanonicalEvent::Append {
-                            path: path.clone(),
-                            time,
-                        }
-                    } else {
-                        CanonicalEvent::Write {
-                            path: path.clone(),
-                            content: data.to_vec(),
-                            time,
-                        }
-                    };
+                            // O_APPEND フラグで Append/Write を切り替え
+                        let event = if flags & libc::O_APPEND != 0 {
+                            CanonicalEvent::Append {
+                                uri,
+                                time,
+                            }
+                        } else {
+                            CanonicalEvent::Write {
+                                uri,
+                                content: data.to_vec(),
+                                time,
+                            }
+                        };
 
-                    let pid = req.pid();
-                    let process_info = self.get_process_info(pid);
+                        let pid = req.pid();
+                        let process_info = self.get_process_info(pid);
 
-                    let file_event = FileEvent { event, process_info};
-                    self.notify_event(&file_event);
+                        let file_event = FileEvent { event, process_info};
+                        self.notify_event(&file_event);
+                    }
                 }
 
                 reply.written(n as u32);
@@ -1608,18 +1657,23 @@ impl Filesystem for PassthroughFS {
 
                         // Create イベント通知
                         if !self.should_ignore(&path) {
-                            let now = Utc::now();
-                            let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
-                            let event = CanonicalEvent::Create {
-                                path: path.clone(),
-                                time,
-                            };
+                            if let Some(uri) = path_to_uri(&path)
+                                .map_err(|e| eprintln!("URI conversion failed: {:?}", e))
+                                .ok()
+                            {
+                                let now = Utc::now();
+                                let time = now.format("%Y-%m-%dT%H:%M:%S%.6f").to_string();
+                                let event = CanonicalEvent::Create {
+                                    uri,
+                                    time,
+                                };
 
-                            let pid = req.pid();
-                            let process_info = self.get_process_info(pid);
+                                let pid = req.pid();
+                                let process_info = self.get_process_info(pid);
 
-                            let file_event = FileEvent { event, process_info};
-                            self.notify_event(&file_event);
+                                let file_event = FileEvent { event, process_info};
+                                self.notify_event(&file_event);
+                            }
                         }
 
                         let mut open_flags = 0;

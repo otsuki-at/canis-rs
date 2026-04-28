@@ -56,15 +56,15 @@ impl ConverterStrategy for DownToL1Strategy {
     fn convert(&self, event: CanonicalEvent) -> Option<CanonicalEvent> {
         match event {
             // L3イベント → L1に変換
-            CanonicalEvent::Write { path, time, .. } |
-            CanonicalEvent::Append { path, time } => {
-                Some(CanonicalEvent::Modify { path, time })
+            CanonicalEvent::Write { uri, time, .. } |
+            CanonicalEvent::Append { uri, time } => {
+                Some(CanonicalEvent::Modify { uri, time })
             }
             CanonicalEvent::Open { .. } => None,
 
             // L2イベント → L1に変換
             CanonicalEvent::Move { dst, time, .. } => {
-                Some(CanonicalEvent::Create { path: dst, time })
+                Some(CanonicalEvent::Create { uri: dst, time })
             }
 
             // L1イベント → そのまま通す
@@ -83,9 +83,9 @@ impl ConverterStrategy for DownToL2Strategy {
     fn convert(&self, event: CanonicalEvent) -> Option<CanonicalEvent> {
         match event {
             // L3イベント → L2に変換
-            CanonicalEvent::Write { path, time, .. } |
-            CanonicalEvent::Append { path, time } => {
-                Some(CanonicalEvent::Modify { path, time })
+            CanonicalEvent::Write { uri, time, .. } |
+            CanonicalEvent::Append { uri, time } => {
+                Some(CanonicalEvent::Modify { uri, time })
             }
             CanonicalEvent::Open { .. } => None,
 

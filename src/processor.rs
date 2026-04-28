@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::sync::Mutex;
 use chrono::{Utc, TimeZone};
+use url::Url;
 
 use crate::event::{CanonicalEvent, FileEvent};
 use crate::observer::Observer;
@@ -18,11 +19,19 @@ impl ProcessorObserver {
         Self { db: Mutex::new(db) }
     }
 
-    fn compute_hash(&self, path: &std::path::Path) -> Result<String> {
+    fn compute_hash(&self, uri: &Url) -> Result<String> {
         use sha2::{Digest, Sha256};
         use hex::encode;
 
-        let data = std::fs::read(path).map_err(|e| {
+        let path = match uri.scheme() {
+            "file" => uri.to_file_path()
+                .map_err(|_| WatcherError::UriFailed(uri.to_string()))?,
+            scheme => return Err(WatcherError::UnsupportedSystem(
+                format!("Unsupported scheme for hash computation: {}", scheme)
+            )),
+        };
+
+        let data = std::fs::read(&path).map_err(|e| {
             WatcherError::HashError(format!("Failed to read file {}: {}", path.display(), e))
         })?;
 
@@ -33,65 +42,65 @@ impl ProcessorObserver {
 
     fn process(&self, file_event: &FileEvent) {
         let (digest, operation) = match &file_event.event {
-            CanonicalEvent::Create { path, time } | CanonicalEvent::Modify { path, time } => {
-                match self.compute_hash(path) {
+            CanonicalEvent::Create { uri, time } | CanonicalEvent::Modify { uri, time } => {
+                match self.compute_hash(uri) {
                     Ok(hash) => (
                         Digest{
-                            filepath:  path.display().to_string(),
+                            uri:  uri.clone(),
                             hash: hash,
                         },
                         Operation{
                             timestamp: time.clone(),
                             operation: file_event.event.operation_type(),
-                            filepath: path.display().to_string(),
+                            uri: uri.clone(),
                             src_path: None,
                         }
                     ),
                     Err(e) => {
-                        eprintln!("Unexpected error while processing: {} - {}", path.display(), e);
+                        eprintln!("Unexpected error while processing: {} - {}", uri.to_string(), e);
                         return;
                     }
                 }
             }
 
             CanonicalEvent::Move { src, dst, time } =>{
-                let src_str = src.display().to_string();
+                let src_str = src.to_string();
                 match self.db.lock().unwrap().latest_hash_by_path(&src_str){
                     Ok(Some(hash)) => (
                         Digest{
-                            filepath:  dst.display().to_string(),
+                            uri:  dst.clone(),
                             hash: hash,
                         },
                         Operation{
                             timestamp: time.clone(),
                             operation: file_event.event.operation_type(),
-                            filepath: dst.display().to_string(),
-                            src_path: Some(src_str),
+                            uri: dst.clone(),
+                            src_path: Some(src.clone()),
                         }
                     ),
                     Ok(None) => {
-                        // 変更元のファイルパスが見つからなかった場合
+                        // 変更元のファイルパスが DB から見つからなかった場合
                         match self.compute_hash(dst) {
                             Ok(hash) => (
                                 Digest{
-                                    filepath:  dst.display().to_string(),
+                                    uri:  dst.clone(),
                                     hash: hash,
                                 },
                                 Operation{
                                     timestamp: time.clone(),
                                     operation: file_event.event.operation_type(),
-                                    filepath: dst.display().to_string(),
-                                    src_path: Some(src_str),
+                                    uri: dst.clone(),
+                                    src_path: Some(src.clone()),
                                 }
                             ),
                             Err(e) => {
-                                eprintln!("Unexpected error while processing: {} - {}", dst.display(), e);
+                                eprintln!("Unexpected error while processing: {} - {}", src.to_string(), e);
                                 return;
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("Unexpected error while processing: {} - {}", dst.display(), e);
+                        eprintln!("Unexpected error while processing: {} - {}", src.to_string(), e);
                         return;
                     }
                 }
