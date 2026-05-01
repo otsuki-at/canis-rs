@@ -70,7 +70,11 @@ pub fn start(args: StartArgs) -> Result<()>{
 
     println!("===Configuration===");
     println!("watcher system: {}", watcher_system);
-    println!("targets: {}", targets.join(", "));
+    if watcher_system == "notify" {
+        println!("targets: {}", targets.join(", "));
+    } else {
+        println!("targets: {}", targets[0]);
+    }
     println!("ignore_paths: {}", ignore_paths.join(", "));
     println!("database_file: {}\n", dbfile_path);
 
@@ -102,8 +106,18 @@ pub fn start(args: StartArgs) -> Result<()>{
     );
 
     // 処理部: ProcessorObserverを作成
+    #[cfg(not(feature = "fuse"))]
     let processor = processor::ProcessorObserver::new(
-        db
+        db,
+        None
+    );
+
+    #[cfg(feature = "fuse")]
+    let fuse_target = &targets[0];
+    #[cfg(feature = "fuse")]
+    let processor = processor::ProcessorObserver::new(
+        db,
+        Some(fuse_target)
     );
 
     // 中間層にプロセッサーをObserverとして登録 (オブザーバパターン第2段階)

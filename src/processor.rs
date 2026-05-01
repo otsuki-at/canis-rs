@@ -1,7 +1,9 @@
-use std::fs::File;
 use std::sync::Mutex;
 use chrono::{Utc, TimeZone};
 use url::Url;
+#[cfg(feature = "fuse")]
+use std::path::{Path, PathBuf};
+
 
 use crate::event::{CanonicalEvent, FileEvent};
 use crate::observer::Observer;
@@ -10,13 +12,37 @@ use crate::db::{EventRepository, Digest, Operation, Process};
 
 /// ProcessorObserver: ProcessorStrategyをObserverインターフェースでラップ
 pub struct ProcessorObserver {
-    db: Mutex<EventRepository>
+    db: Mutex<EventRepository>,
+    #[cfg(feature = "fuse")]
+    target: Url,
+    #[cfg(feature = "fuse")]
+    target_depth: usize,
 }
 
 impl ProcessorObserver {
     /// 処理レベルから戦略を選択してProcessorObserverを作成
-    pub fn new(db: EventRepository) -> Self {
-        Self { db: Mutex::new(db) }
+    pub fn new(db: EventRepository, target: Option<&str>) -> Self {
+        #[cfg(feature = "fuse")]
+            let target = Url::from_file_path(target.unwrap()).expect("Invalid file path");
+
+        Self {
+            db: Mutex::new(db),
+            #[cfg(feature = "fuse")]
+            target_depth: Path::new(target.path()).components().count(),
+            #[cfg(feature = "fuse")]
+            target,
+        }
+    }
+
+    #[cfg(feature = "fuse")]
+    fn replace_watch_path(&self, uri: &Url) -> Url {
+        let relative: PathBuf = Path::new(uri.path())
+            .components()
+            .skip(self.target_depth)
+            .collect();
+
+        let new_path = Path::new(self.target.path()).join(&relative);
+        Url::from_file_path(&new_path).expect("Failed to convert path to URL")
     }
 
     fn compute_hash(&self, uri: &Url) -> Result<String> {
@@ -44,18 +70,25 @@ impl ProcessorObserver {
         let (digest, operation) = match &file_event.event {
             CanonicalEvent::Create { uri, time } | CanonicalEvent::Modify { uri, time } => {
                 match self.compute_hash(uri) {
-                    Ok(hash) => (
-                        Digest{
-                            uri:  uri.clone(),
-                            hash: hash,
-                        },
-                        Operation{
-                            timestamp: time.clone(),
-                            operation: file_event.event.operation_type(),
-                            uri: uri.clone(),
-                            src_path: None,
-                        }
-                    ),
+                    Ok(hash) => {
+                        #[cfg(feature = "fuse")]
+                        let store_uri = self.replace_watch_path(uri);
+                        #[cfg(not(feature = "fuse"))]
+                        let store_uri = uri;
+
+                        (
+                            Digest{
+                                uri:  store_uri.clone(),
+                                hash: hash,
+                            },
+                            Operation{
+                                timestamp: time.clone(),
+                                operation: file_event.event.operation_type(),
+                                uri: store_uri.clone(),
+                                src_path: None,
+                            }
+                        )
+                    },
                     Err(e) => {
                         eprintln!("Unexpected error while processing: {} - {}", uri.to_string(), e);
                         return;
@@ -64,18 +97,28 @@ impl ProcessorObserver {
             }
 
             CanonicalEvent::Move { src, dst, time } =>{
+                #[cfg(feature = "fuse")]
+                let src_uri = self.replace_watch_path(src);
+                #[cfg(not(feature = "fuse"))]
+                let src_uri = src;
+
+                #[cfg(feature = "fuse")]
+                let dst_uri = self.replace_watch_path(dst);
+                #[cfg(not(feature = "fuse"))]
+                let dst_uri = dst;
+
                 let src_str = src.to_string();
                 match self.db.lock().unwrap().latest_hash_by_path(&src_str){
                     Ok(Some(hash)) => (
                         Digest{
-                            uri:  dst.clone(),
+                            uri:  dst_uri.clone(),
                             hash: hash,
                         },
                         Operation{
                             timestamp: time.clone(),
                             operation: file_event.event.operation_type(),
-                            uri: dst.clone(),
-                            src_path: Some(src.clone()),
+                            uri: dst_uri.clone(),
+                            src_path: Some(src_uri.clone()),
                         }
                     ),
                     Ok(None) => {
@@ -83,14 +126,14 @@ impl ProcessorObserver {
                         match self.compute_hash(dst) {
                             Ok(hash) => (
                                 Digest{
-                                    uri:  dst.clone(),
+                                    uri:  dst_uri.clone(),
                                     hash: hash,
                                 },
                                 Operation{
                                     timestamp: time.clone(),
                                     operation: file_event.event.operation_type(),
-                                    uri: dst.clone(),
-                                    src_path: Some(src.clone()),
+                                    uri: dst_uri.clone(),
+                                    src_path: Some(src_uri.clone()),
                                 }
                             ),
                             Err(e) => {
