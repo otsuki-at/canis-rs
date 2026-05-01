@@ -151,7 +151,7 @@ impl EventRepository {
 
     pub fn get_entries(&self, date: &str) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
-            "SELECT created_at, uri, hash,
+            "SELECT created_at, uri, hash
             FROM Digest
             WHERE created_at LIKE ?1
             ORDER BY created_at ASC"
@@ -161,8 +161,8 @@ impl EventRepository {
             params![format!("{}%", date)],
             |row| {
                 let timestamp: String       = row.get(0)?;
-                let uri:       String       = row.get(2)?;
-                let hash:      String       = row.get(3)?;
+                let uri:       String       = row.get(1)?;
+                let hash:      String       = row.get(2)?;
 
                 // 既存のログファイルのフォーマットに合わせて文字列化
                 let entry = format!("{},{},{}", timestamp, uri, hash);

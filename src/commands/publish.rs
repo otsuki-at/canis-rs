@@ -4,12 +4,12 @@ use sha2::{Digest, Sha256};
 use chrono::{Utc, Duration, NaiveDate};
 use base64::{engine::general_purpose, Engine as _};
 use serde_json::json;
-
+use directories_next::ProjectDirs;
 
 use crate::config::Config;
 use crate::error::{Result, WatcherError};
 use crate::cli::PublishArgs;
-use crate::logger::{self, FileLogger, Logger};
+use crate::db::EventRepository;
 
 pub fn publish(args: PublishArgs) -> Result<()>{
     // 設定ファイルを取得
@@ -23,20 +23,18 @@ pub fn publish(args: PublishArgs) -> Result<()>{
 
     let settings = config.as_ref().map(|c| &c.basic_settings);
 
-    let logfile_path = args.logfile
+    let database_path = args.dbfile
         .filter(|l| !l.is_empty())
-        .or_else(|| settings.and_then(|s| s.logfile.clone()))
+        .or_else(|| settings.and_then(|s| s.dbfile.clone()))
         .or_else(|| {
-            logger::get_default_log_path("canis")
-                .map(|p| p.to_string_lossy().into_owned())
+            let proj_dirs = ProjectDirs::from("", "", "canis")?;
+            Some(proj_dirs.data_dir().join("canis.db").display().to_string())
         })
         .ok_or_else(|| WatcherError::ConfigError(
             "Failed to determine log file path".to_string()
         ))?;
 
-    let logger: Arc<dyn Logger> = Arc::new(FileLogger::new(
-        &logfile_path
-    )?);
+    let db = EventRepository::new(&database_path)?;
 
     // 日次ハッシュを作成する日付を取得
     let today = Utc::now().date_naive();
@@ -48,10 +46,10 @@ pub fn publish(args: PublishArgs) -> Result<()>{
                             format!("Invalid date format: {s} (expected: YYYY-MM-DD, e.g. 2026-03-24)")
                         ))?,
     };
-    let prefix  = format!("{date}T");
+    let date_str = date.format("%Y-%m-%d").to_string();
 
     // 証跡ログから指定した日付の証跡一覧を取得
-    let entries = logger.get_entries(&prefix)?;
+    let entries = db.get_entries(&date_str)?;
 
     if entries.is_empty() {
         return Err(WatcherError::HashError(
