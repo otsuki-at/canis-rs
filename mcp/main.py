@@ -6,14 +6,27 @@ from mcp.shared.exceptions import McpError
 import json
 from typing import Sequence
 
+import sqlite3
 import subprocess
+from contextlib import contextmanager
+from urllib.parse import urlparse
+from pathlib import Path
 
 import asyncio
 import sys
 
 class CanisServer:
-    def __init__(self, hashlog: str):
-        self.hashlog = hashlog
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+
+    @contextmanager
+    def _connect(self):
+        con = sqlite3.connect(self.db_path)
+        con.row_factory = sqlite3.Row
+        try:
+            yield con
+        finally:
+            con.close()
 
     def create_hash(self, filepath: str) -> str:
         """Create hash from specified file"""
@@ -21,21 +34,56 @@ class CanisServer:
         return hash
 
     def search_target_from_log(self, target: str) -> str:
-        """Search for specified file or hash value in hash log"""
-        result = subprocess.run(["grep", target, self.hashlog], capture_output=True, text=True).stdout
-        if not result:
-            return "Target not found in hash log."
-        return result
+        """Search for specified file path or hash value in DB"""
+        uri = self._normalize_to_uri(target)
 
-    def create_daily_log_file(self, day:str, path:str):
-        """Create a hash from logs obtained on a specific date"""
-        day = day +"T"
-        log = subprocess.run(["grep", day, self.hashlog], capture_output=True, text=True).stdout
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT created_at, uri, hash
+                FROM Digest
+                WHERE (:uri IS NOT NULL AND uri = :uri) OR hash = :hash
+                ORDER BY created_at DESC
+                """,
+                {"uri": uri, "hash": target},
+            ).fetchall()
+
+        if not rows:
+            return "Target not found in hash log."
+
+        return "\n".join(
+            f"{row['created_at']}  {row['uri']}  {row['hash']}"
+            for row in rows
+        )
+
+    def create_daily_log_file(self, day: str, path: str) -> str:
+        """Fetch records for a specific date from DB and save to file"""
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT created_at, uri, hash
+                FROM Digest
+                WHERE DATE(created_at) = DATE(:day)
+                ORDER BY created_at
+                """,
+                {"day": day},
+            ).fetchall()
+
         with open(path, "w") as f:
-            print(log, file=f, end = "")
+            for row in rows:
+                print(f"{row['created_at']},{row['uri']},{row['hash']}", file=f)
 
         return f"Hash log saved to: {path}"
 
+    @staticmethod
+    def _normalize_to_uri(target: str) -> str:
+        parsed = urlparse(target)
+        if parsed.scheme:
+            return target
+        p = Path(target)
+        if p.is_absolute():
+            return p.as_uri()
+        return None
 
 async def serve(hashlog: str) -> None:
     server = Server("canis-mcp")
@@ -137,10 +185,10 @@ async def serve(hashlog: str) -> None:
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python main.py <hashlog_path>")
+        print("Usage: python main.py <db_path>")
         sys.exit(1)
-    hashlog = sys.argv[1]
-    asyncio.run(serve(hashlog))
+    db_path = sys.argv[1]
+    asyncio.run(serve(db_path))
 
 
 if __name__ == "__main__":
