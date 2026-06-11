@@ -650,14 +650,15 @@ impl PassthroughFS {
     }
 
     pub fn get_process_info(&mut self, pid: u32) -> Option<ProcessInfo> {
+        let sysinfo_pid = Pid::from(pid as usize);
+
         self.sys.refresh_processes_specifics(
-            ProcessesToUpdate::All,
+            ProcessesToUpdate::Some(&[sysinfo_pid]),
             true,
             ProcessRefreshKind::nothing()
                 .with_cmd(UpdateKind::Always)
                 .with_exe(UpdateKind::Always),); // 最新情報に更新
 
-        let sysinfo_pid = Pid::from(pid as usize);
         self.sys.process(sysinfo_pid).map(|p| ProcessInfo {
             start_time: p.start_time(),
             pid:       pid as i32,
