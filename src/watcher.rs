@@ -784,10 +784,12 @@ impl Filesystem for PassthroughFS {
                 if let Ok(file) = self.get_file_handle(fh) {
                     file.set_len(size)
                 } else {
-                    File::open(&path).and_then(|f| f.set_len(size))
+                    OpenOptions::new().write(true).open(&path)
+                        .and_then(|f| f.set_len(size))
                 }
             } else {
-                File::open(&path).and_then(|f| f.set_len(size))
+                OpenOptions::new().write(true).open(&path)
+                    .and_then(|f| f.set_len(size))
             };
 
             if let Err(e) = result {
@@ -1173,6 +1175,12 @@ impl Filesystem for PassthroughFS {
     }
 
     fn open(&mut self, req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
+        #[cfg(target_os = "linux")]
+        if flags & libc::O_TMPFILE != 0 {
+            reply.error(libc::EOPNOTSUPP);
+            return;
+        }
+
         let path = match self.get_path(ino) {
             Ok(path) => path,
             Err(e) => {
