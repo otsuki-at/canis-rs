@@ -9,6 +9,8 @@ use chrono::Utc;
 use sysinfo::{System,Pid, ProcessesToUpdate, ProcessRefreshKind, UpdateKind};
 use serde_json;
 use url::Url;
+use signal_hook::{consts::{SIGINT, SIGTERM}, iterator::Signals};
+use std::sync::Mutex;
 
 use crate::error::{Result, WatcherError};
 use crate::event::{CanonicalEvent, FileEvent, ProcessInfo};
@@ -97,11 +99,32 @@ impl FileWatcher {
             notify::Config::default(),
         )?;
 
+        let watcher = Arc::new(Mutex::new(Some(watcher)));
+        let watcher_clone = Arc::clone(&watcher);
+
         // 各パスの監視を開始
-        for path in paths {
-            watcher.watch(path.as_ref(), RecursiveMode::Recursive)?;
-            println!("Started watching: {}", path);
+        if let Ok(mut w) = watcher.lock() {
+            if let Some(w) = w.as_mut() {
+                for path in paths {
+                    w.watch(path.as_ref(), RecursiveMode::Recursive)?;
+                    println!("Started watching: {}", path);
+                }
+            }
         }
+
+        // シグナルハンドラ
+        let mut signals = Signals::new(&[SIGINT, SIGTERM])
+            .expect("Failed to initialize signal handler");
+
+        std::thread::spawn(move || {
+            for sig in signals.forever() {
+                eprintln!("\nReceived signal {}", sig);
+                if let Ok(mut w) = watcher_clone.lock() {
+                    w.take(); // drop → tx がdrop → rx のブロックが解ける
+                }
+                break;
+            }
+        });
 
         println!("Press Ctrl+C to exit\n");
 
@@ -178,8 +201,6 @@ impl FileWatcher {
     /// FUSE を使った監視の開始
     #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
     fn start_fuse_watching(&self, paths: &[String], ignore_paths: &[String]) -> Result<()> {
-        use signal_hook::{consts::{SIGINT, SIGTERM}, iterator::Signals};
-
         if paths.is_empty() {
             return Err(WatcherError::ConfigError(
                 "No paths specified for watching".to_string()

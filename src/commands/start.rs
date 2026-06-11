@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::fs::File;
 use std::path::PathBuf;
 use directories_next::ProjectDirs;
+use std::sync::{Arc, Mutex};
 #[cfg(unix)]
 use daemonize::Daemonize;
 
@@ -50,7 +51,7 @@ pub fn start(args: StartArgs) -> Result<()>{
             "Failed to determine log file path".to_string()
         ))?;
 
-    let db = EventRepository::new(&dbfile_path)?;
+    let db = Arc::new(Mutex::new(EventRepository::new(&dbfile_path)?));
 
     let user_ignore_paths = args.ignore
         .filter(|t| !t.is_empty() && t.iter().all(|s| !s.is_empty()))
@@ -108,7 +109,7 @@ pub fn start(args: StartArgs) -> Result<()>{
     // 処理部: ProcessorObserverを作成
     #[cfg(not(feature = "fuse"))]
     let processor = processor::ProcessorObserver::new(
-        db,
+        Arc::clone(&db),
         None
     );
 
@@ -116,7 +117,7 @@ pub fn start(args: StartArgs) -> Result<()>{
     let fuse_target = &targets[0];
     #[cfg(feature = "fuse")]
     let processor = processor::ProcessorObserver::new(
-        db,
+        Arc::clone(&db),
         Some(fuse_target)
     );
 
@@ -128,7 +129,15 @@ pub fn start(args: StartArgs) -> Result<()>{
 
     watcher.start_watching(&targets, &ignore_paths)?;
 
+    // DB クリーンアップ
+    println!("Closing database connection...");
+    if let Ok(repo) = db.lock() {
+        repo.checkpoint()?;
+    }
+    println!("Database closed.");
+
     Ok(())
+
 }
 
 #[cfg(unix)]

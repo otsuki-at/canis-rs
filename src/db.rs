@@ -90,6 +90,11 @@ impl EventRepository {
         Ok(Self { conn })
     }
 
+    pub fn checkpoint(&self) -> Result<()> {
+        self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        Ok(())
+    }
+
     pub fn insert_digest(&self, event: &Digest) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO Digest (uri, hash)

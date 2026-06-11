@@ -1,9 +1,8 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, Arc};
 use chrono::{Utc, TimeZone};
 use url::Url;
 #[cfg(feature = "fuse")]
 use std::path::{Path, PathBuf};
-
 
 use crate::event::{CanonicalEvent, FileEvent};
 use crate::observer::Observer;
@@ -12,7 +11,7 @@ use crate::db::{EventRepository, Digest, Operation, Process};
 
 /// ProcessorObserver: ProcessorStrategyをObserverインターフェースでラップ
 pub struct ProcessorObserver {
-    db: Mutex<EventRepository>,
+    db: Arc<Mutex<EventRepository>>,
     #[cfg(feature = "fuse")]
     target: Url,
     #[cfg(feature = "fuse")]
@@ -21,12 +20,12 @@ pub struct ProcessorObserver {
 
 impl ProcessorObserver {
     /// 処理レベルから戦略を選択してProcessorObserverを作成
-    pub fn new(db: EventRepository, target: Option<&str>) -> Self {
+    pub fn new(db: Arc<Mutex<EventRepository>>, target: Option<&str>) -> Self {
         #[cfg(feature = "fuse")]
             let target = Url::from_file_path(target.unwrap()).expect("Invalid file path");
 
         Self {
-            db: Mutex::new(db),
+            db,
             #[cfg(feature = "fuse")]
             target_depth: Path::new(target.path()).components().count(),
             #[cfg(feature = "fuse")]
