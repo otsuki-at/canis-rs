@@ -47,6 +47,8 @@ impl ProcessorObserver {
     fn compute_hash(&self, uri: &Url) -> Result<String> {
         use sha2::{Digest, Sha256};
         use hex::encode;
+        use std::fs::File;
+        use std::io::Read;
 
         let path = match uri.scheme() {
             "file" => uri.to_file_path()
@@ -56,13 +58,24 @@ impl ProcessorObserver {
             )),
         };
 
-        let data = std::fs::read(&path).map_err(|e| {
+        let mut file = File::open(&path).map_err(|e| {
             WatcherError::HashError(format!("Failed to read file {}: {}", path.display(), e))
         })?;
 
         let mut hasher = Sha256::new();
-        hasher.update(&data);
-        Ok(encode(hasher.finalize()))
+        let mut buf = vec![0u8; 1024 * 1024];
+
+        loop {
+            let n = file.read(&mut buf).map_err(|e| {
+                WatcherError::HashError(format!("Failed to read file {}: {}", path.display(), e))
+            })?;
+            if n == 0 { break; }
+            hasher.update(&buf[..n]);
+        }
+
+        let hash = encode(hasher.finalize());
+
+        Ok(hash)
     }
 
     fn process(&self, file_event: &FileEvent) {
