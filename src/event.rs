@@ -2,6 +2,7 @@ use url::Url;
 
 use crate::db::{OperationType, Process};
 
+#[derive(Clone)]
 pub struct FileEvent {
     pub event: CanonicalEvent,
     pub process_info: Option<ProcessInfo>,

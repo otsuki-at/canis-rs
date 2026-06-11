@@ -453,8 +453,9 @@ use {
     std::io::{Read, Seek, SeekFrom, Write},
     std::os::unix::ffi::OsStrExt,
     std::os::unix::fs::{MetadataExt, PermissionsExt},
-    std::sync::Mutex,
     std::time::{Duration, SystemTime, UNIX_EPOCH},
+    std::sync::mpsc,
+    std::sync::mpsc::Sender,
 };
 
 #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
@@ -534,6 +535,7 @@ pub struct PassthroughFS {
     // 無視するファイルパスのリスト
     ignore_paths: Vec<String>,
     sys: System,
+    tx: Sender<FileEvent>,
 }
 
 #[cfg(all(feature = "fuse", any(target_os = "linux", target_os = "macos")))]
@@ -552,6 +554,20 @@ impl PassthroughFS {
         );
         path_to_inode.insert(root.clone(), 1);
 
+        // チャネル作成
+        let (tx, rx) = mpsc::channel::<FileEvent>();
+
+        // 別スレッド起動
+        let observers_clone = Arc::clone(&observers);
+        std::thread::spawn(move || {
+            for event in rx {
+                let obs = observers_clone.read().unwrap();
+                for observer in obs.iter() {
+                    observer.update(&event);
+                }
+            }
+        });
+
         Self {
             root,
             inodes: Arc::new(Mutex::new(inodes)),
@@ -562,6 +578,7 @@ impl PassthroughFS {
             observers,
             ignore_paths: ignore_paths.to_vec(),
             sys: System::new(),
+            tx,
         }
     }
 
@@ -624,10 +641,7 @@ impl PassthroughFS {
 
     /// イベントを通知する（追加）
     fn notify_event(&self, event: &FileEvent) {
-        let observers = self.observers.read().unwrap();
-        for observer in observers.iter() {
-            observer.update(&event);
-        }
+        self.tx.send(event.clone()).unwrap();
     }
 
     /// ファイルパスを無視リストに含まれているかチェック
