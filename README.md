@@ -6,6 +6,7 @@ Windows， MacOS， Linux で動作するシステムで，それぞれのOSで�
 - MacOS: FSEvents
 - Linux: inotify
 Filesystem in Userspace (FUSE) を利用することで，より高度な監視ができます．
+FUSE による監視を利用する方法や取得できる情報は以下のFUSEを利用した監視機能の利用に示しています．
 
 また，canis は以下の機能を提供しています．
 - ユーザのファイル操作を監視して証跡を保存する
@@ -15,23 +16,29 @@ Filesystem in Userspace (FUSE) を利用することで，より高度な監視�
 - 論文中の図の情報をまとめた説明を作成する
 
 # Quick start
-canis は，バックグラウンドで動作してユーザのファイル操作を監視し，以下の項目からなる証跡を作成します．
-- 操作時刻
-- ハッシュ値
-- ファイルパス
+canis は，バックグラウンドで動作してユーザのファイル操作を監視し，以下の項目からなる証跡をデータベースに保存します．
+- ファイルがいつから存在したかの証拠となる情報
+  - エントリ追加時刻
+  - ハッシュ値
+  - ファイルパス
+- ファイル操作に関する情報
+  - 操作時刻
+  - 操作の種別
+  - ファイルパス
+  - 移動元のファイルパス(ファイル移動時のみ)
 
 以下にシステムを利用して監視し，証跡を保存する動作の例を示します．
 以下で示すコマンドの詳細については，以降の Usage に記載しています．
 
 1. まずは，ユーザの操作監視を開始するためにシステムを起動します．
-'''
-  $ canis start --watcher notify --targets /watching/path/1/ --logfile /path/to/logfile
-'''
+```
+  $ canis start --watcher notify --targets /watching/path/1/ --dbfile /path/to/dbfile
+```
 上記のコマンドは，システムを起動するためのコマンド `start` です．
 それぞれの引数は以下の項目を設定しています．
 - `watcher`: 監視に利用するシステム
 - `targets`: 監視対象のパス
-- `logfile`: 証跡を保存するログファイルのパス
+- `dbfile`: 証跡を保存するデータベースのファイルのパス
 
 2. システムを起動した状態で，監視パス配下でファイル操作を行います．
 3. 操作したファイルについての証跡が保存されます．
@@ -43,24 +50,6 @@ canis は，バックグラウンドで動作してユーザのファイル操�
 
 上記は簡単な操作例です．
 これらに加えて複数のパス配下の監視やデーモンとしての起動も可能となっています．詳細については以下を確認してください
-
-<!-- # Requirements
-## All Platforms
-- Python 3.x (optional, required only when using the MCP)
-
-## Linux
-- systemd
-- [libfuse3.14.0](https://github.com/libfuse/libfuse) (optional, required only when using the FUSE backend)
-
-## Windows
-- [WinSW 3.x](https://github.com/winsw/winsw)
-  - Windows はバックグラウンドで常に動かすプログラムを「サービス」という形で管理します．
-  しかし， canis は元々サービス化される仕様になっていないため，WinSW を利用して Windows サービスとして登録・起動・停止・監視できるようにします．
-
-## macOS
-- launchd
-- [MacFUSE](https://github.com/macfuse/macfuse) (optional, required only when using the FUSE backend) -->
-
 
 # Installation
 1. Releases から各 OS に対応したバイナリをダウンロードしてください
@@ -91,10 +80,10 @@ MacOSの場合は，実行するためには以下の操作が必要になりま
 設定ファイルには以下の情報を記載できます．
 - watcher: 監視に利用するシステムを指定します． notify または fuse を指定できます． ただし，fuse を指定したい場合は以降に示す FUSE による監視を利用するための手順を実行してください．
 - targets: 監視したいディレクトリのパスを指定します．notify を利用する場合は複数指定可能です．FUSE を利用する場合は 1つ目の要素を監視対象パスとして選択します．
-- logfile: 証跡を保存するログファイルの配置場所を指定します．引数および設定ファイルで指定されていない場合は各 OS ごとに以下の場所に作成されます．
-  - Linux: `/home/<user>/.local/share/canis/canis.log`
-  - Windows: `C:\Users\<user>\AppData\Roaming\canis\data\canis.log`
-  - MacOS: `/Users/<user>/Library/Application/canis/canis.log`
+- dbfile: 証跡を保存するデータベースファイルの配置場所を指定します．引数および設定ファイルで指定されていない場合は各 OS ごとに以下の場所に作成されます．
+  - Linux: `/home/<user>/.local/share/canis/canis.db`
+  - Windows: `C:\Users\<user>\AppData\Roaming\canis\data\canis.db`
+  - MacOS: `/Users/<user>/Library/Application/canis/canis.db`
 - dailyhash_repository: 日次ハッシュを公開するGitリポジトリをクローンしたローカルリポジトリのパスを指定します．
 
 以下に設定ファイルの例を示します．
@@ -109,7 +98,7 @@ MacOSの場合は，実行するためには以下の操作が必要になりま
 
   # Specify the path to the log file where digest will be stored
   # Do not place the log file under any monitored path to avoid infinite loops
-  logfile = "/path/to/logfile"
+  dbfile = "/path/to/dbfile"
 
   # Specify the path to a local clone of the Git repository
   # This repository is used to publish daily hash values
@@ -128,6 +117,7 @@ MacOSの場合は，実行するためには以下の操作が必要になりま
 ## Model Context Protocol
 canis が保存した証跡などの情報から，AI を利用して論文中の図の情報をまとめた説明を作成できます．
 この機能を利用するための Model Context Protocol (MCP) の設定を以下に記載します．
+より詳細な利用方法は [mcp/README.md](./mcp/README.md) に示しています．
 - Configuration for Claude.app
 ```json
 {
@@ -139,7 +129,7 @@ canis が保存した証跡などの情報から，AI を利用して論文中�
       "/path/of/canis_mcp",
       "run",
       "main.py",
-      "/path/of/canis/log"
+      "/path/to/canis/database"
       ]
     }
   }
@@ -157,15 +147,15 @@ canis が保存した証跡などの情報から，AI を利用して論文中�
         "/path/of/canis_mcp",
         "run",
         "main.py",
-        "/path/of/canis/log"
+        "/path/to/canis/database"
       ],
     }
   }
 }
 ```
 
-- `path/of/canis_mcp` : `canis_mcp` ディレクトリのパス
-- `path/of/canis/log` : canisが証跡のログを保存しているファイルのパス
+- `/path/of/canis_mcp` : `canis_mcp` ディレクトリのパス
+- `/path/to/canis/database` : canisが証跡のログを保存しているデータベースのパス
 
 
 # Usage
@@ -198,7 +188,7 @@ Options:
   -c, --config <CONFIG>    Path to configuration file
       --watcher <WATCHER>  File system watcher backend to use
       --targets <TARGETS>  Paths to watch for operation
-      --logfile <LOGFILE>  Path to log file for digest
+      --dbfile <DBFILE>    Path to database file for digest
       --hashdir <HASHDIR>  Local git repository path for hash storage and publication
   -s, --start <START>      Generate service file for monitoring (canis start)
   -b, --binary <BINARY>    Path to canis binary file
@@ -216,7 +206,7 @@ Options:
   -c, --config <CONFIG>    Specify config file
       --watcher <WATCHER>  File system watcher backend to use
       --targets <TARGETS>  Paths to watch for operation
-      --logfile <LOGFILE>  Path to log file for digest
+      --dbfile <DBFILE>    Path to database file for digest
   -d, --daemon             Start background
   -h, --help               Print help
 ```
@@ -245,14 +235,21 @@ Options:
   -h, --help  Print help
 ```
 
-- canis publish -h (TODO)
+- canis publish -h
+
 ```
 Publish daily hash
 
-Usage: canis publish
+Usage: canis publish [OPTIONS]
 
 Options:
-  -h, --help  Print help
+  -c, --config <CONFIG>    Specify config file
+      --dbfile <DBFILE>    Path to database file for digest
+      --date <DATE>        Date to create daily hash [default: today]
+      --hashdir <HASHDIR>  Directory to store daily hash files
+      --token <TOKEN>      GitHub Personal Access Token
+      --repo <REPO>        GitHub repository name to store daily hash files
+  -h, --help               Print help
 ```
 
 ## examples
@@ -265,8 +262,14 @@ canis の設定を記載できる設定ファイルや自動起動のための�
 ファイルの配置場所や設定項目の内容は，引数で指定できます．
 また，引数で指定しない場合は `init` コマンド実行後に対話的に設定できます．
 
-以下にそれぞれのファイルを生成した場合の例について示します．
-1. システムの起動に必要な設定を記載する設定ファイル
+本コマンドで作成されるファイルは以下の3種類です．
+- システム起動に必要な項目を記載する設定ファイル
+- canis start を自動実行するための設定ファイル
+- canis publish を自動で定期実行するための設定ファイル
+
+以下ではそれぞれのファイルについて，OSごとのデフォルトの配置場所やファイル内容を示します．
+
+1. **システムの起動に必要な項目を記載する設定ファイル**
 
 それぞれの OS について，デフォルトの配置場所は以下に設定しています．
 - Linux: `/home/<user>/.config/canis/config.toml`
@@ -285,14 +288,16 @@ canis の設定を記載できる設定ファイルや自動起動のための�
 
   # Specify the path to the log file where digest will be stored
   # Do not place the log file under any monitored path to avoid infinite loops
-  logfile = "/path/to/logfile"
+  dbfile = "/path/to/dbfile"
 
   # Specify the path to a local clone of the Git repository
   # This repository is used to publish daily hash values
   hashdir = "/path/to/local/gitrepository/"
 ```
-2. canis start を自動起動するための設定ファイル
-  - Linux
+
+2. **canis start を自動起動するための設定ファイル**
+
+**Linux**
 
   デフォルトの配置場所は
   `/home/<user>/.config/systemd/user/canis.service`
@@ -311,7 +316,8 @@ canis の設定を記載できる設定ファイルや自動起動のための�
   [Install]
   WantedBy=default.target
   ```
-  - Windows
+
+**Windows**
 
   デフォルトの配置場所は
   `C:\Users\<user>\AppData\Roaming\canis\config\canis.xml`
@@ -332,7 +338,8 @@ canis の設定を記載できる設定ファイルや自動起動のための�
     </serviceaccount>
   </service>
   ```
-  - MacOS
+
+**MacOS**
 
   デフォルトの配置場所は
   `~/Library/LaunchAgents/com.canis.start.plist`
@@ -363,14 +370,124 @@ canis の設定を記載できる設定ファイルや自動起動のための�
       <true/>
 
       <key>StandardOutPath</key>
-      <string>/User/user/Library/Logs/canis.log</string>
+      <string>/Users/user/Library/Logs/canis.log</string>
 
       <key>StandardErrorPath</key>
-      <string>/User/user/Library/Logs/canis.err</string>
+      <string>/Users/user/Library/Logs/canis.err</string>
   </dict>
   </plist>
   ```
-3. canis publish を定期実行するファイル(TODO)
+3. **canis publish を定期実行するための設定ファイル**
+
+**Linux**
+
+  canis publish を自動公開するためには，service ファイルと timer ファイルの 2ファイルを使用します．
+  service ファイルでは起動処理を定義し，timer ファイルはその実行タイミングを定義します．
+
+  各ファイルのデフォルトの配置場所は
+   -timer: `/home/<user>/.config/systemd/user/canis-publish.timer`
+   -service: `/home/<user>/.config/systemd/user/canis-publish.service`
+  に設定しています．
+
+  まず，timer ファイルの内容の例を以下に示します．
+  ```
+  [Unit]
+  Description=Exec canis publish daily
+
+  [Timer]
+  OnCalendar=*-*-* {schedule}
+  Persistent=true
+  Unit=/home/user/.config/systemd/user/canis-publish.service
+
+  [Install]
+  WantedBy=timers.target
+  ```
+  また，service ファイルの内容の例を以下に示します．
+  ```
+  [Unit]
+  Description=canis publish
+
+  [Service]
+  Type=oneshot
+  ExecStart=/home/user/bin/canis publish --date {date} --config /home/user/.config/canis/config.toml
+  ```
+
+**Windows**
+
+  デフォルトの配置場所は
+  `C:\Users\<user>\AppData\Roaming\canis\config\canis-publish.xml`
+  に設定しています．
+
+  ファイルの内容の例を以下に示します．
+  ```
+  <service>
+  <?xml version="1.0" encoding="UTF-16"?>
+  <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+    <Triggers>
+      <CalendarTrigger>
+        <StartBoundary>{today}T{schedule}:00</StartBoundary>
+        <ScheduleByDay>
+          <DaysInterval>1</DaysInterval>
+        </ScheduleByDay>
+      </CalendarTrigger>
+    </Triggers>
+
+    <Actions>
+      <Exec>
+        <Command>C:\Users\user\bin\canis.exe</Command>
+        <Arguments>publish --date {date} --config C:\Users\user\AppData\Roaming\canis\config\config.toml</Arguments>
+      </Exec>
+    </Actions>
+
+    <Settings>
+      <Enabled>true</Enabled>
+      <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+      <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    </Settings>
+  </Task>
+  ```
+
+**MacOS**
+
+  デフォルトの配置場所は
+  `~/Library/LaunchAgents/com.canis.publish.plist`
+  に設定しています．
+
+  ファイルの内容の例を以下に示します．
+  ```
+  <?xml version="1.0" encoding="UTF-8"?>
+  <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+  <plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.{username}.canis.publish</string>
+
+    <!-- 実行コマンド -->
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/user/bin/canis</string>
+      <string>publish</string>
+      <string>--date</string>
+      <string>{date}</string>
+      <string>--config</string>
+      <string>/Users/user/Library/Application/canis/config.toml</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>   <integer>{hour}</integer>
+      <key>Minute</key> <integer>{minute}</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/user/Library/Logs/canis.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/user/Library/Logs/canis.err</string>
+  </dict>
+  </plist>
+  ```
 
 ### info コマンド(TODO)
 ```
@@ -386,7 +503,7 @@ canis info FILEPATH
 
 
 # Advanced Setting
-## FUSE を利用した監視機能の利用
+## FUSEを利用した監視機能の利用
 ファイル操作監視システムとして FUSE を利用することで，より詳細な操作を取得できるようになります．
 FUSE による監視機能を利用できるようにするために手元でビルドする必要があります．
 
@@ -411,7 +528,6 @@ FUSE による監視機能を利用できるようにするために手元でビ
   $ cargo build --release --features fuse
 ```
 
-## システムの自動起動設定
 ## 自動起動設定
 canis を計算機起動時に自動で起動するように設定することで，ユーザが毎回起動せずともファイルアクセス監視が開始できます．
 
@@ -428,9 +544,8 @@ canis を計算機起動時に自動で起動するように設定すること�
   - launchd
 
 ### 設定手順
-自動起動を実現するための各 OS ごとの手順について以下に示します．
-
-### Linux
+#### システムの自動起動設定
+**Linux**
 1. 自動起動設定用のファイルを作成します
 
 以下のコマンドでユニットファイルが作成できます．
@@ -438,7 +553,7 @@ canis を計算機起動時に自動で起動するように設定すること�
 canis init --start /path/to/unitfile --binary /path/to/canis/binary
 ```
 それぞれの引数は以下の項目を設定しています．
-- `start`: ユニットファイルの配置場所
+- `start`: ユニットファイルのパス
 - `binary`: canis のバイナリの配置場所
 
 2. systemd の設定を再読み込みしてください
@@ -451,11 +566,11 @@ systemctl --user daemon-reload
 
 以下のコマンドでシステム起動時に canis が自動起動するようになります．
 ```
-systemctl --user enable canis-start.service
-systemctl --user start canis-start.service
+systemctl --user enable canis.service
+systemctl --user start canis.service
 ```
 
-### Windows
+**Windows**
 1. WinSW 3.x をインストールしてください
 
 以下のサイトからインストールできます．
@@ -485,7 +600,7 @@ $ canis.exe init --start /path/to/unitfile --binary /path/to/canis/binary
     <password>passwd</password>
 ```
 
-3. canis をサービスとして登録します
+4. canis をサービスとして登録します
 
 作成した設定ファイルを利用して， canis をユーザのサービスとして登録します．
 以下に登録するためのコマンド例を示します．ここでは，設定ファイルがデフォルトの配置場所にある例を示しています．
@@ -493,7 +608,7 @@ $ canis.exe init --start /path/to/unitfile --binary /path/to/canis/binary
 $ WinSW-x64.exe install C:\Users\<user>\AppData\Roaming\canis\config\canis.xml
 ```
 
-4. canis のサービスを実行します
+5. canis のサービスを実行します
 
 登録したサービスを実行し， canis を起動します．
 以下にサービスを実行するためのコマンド例を示します．3と同様に設定ファイルがデフォルトの配置場所にある例を示しています．
@@ -501,12 +616,12 @@ $ WinSW-x64.exe install C:\Users\<user>\AppData\Roaming\canis\config\canis.xml
 $ WinSW-x64.exe start C:\Users\<user>\AppData\Roaming\canis\config\canis.xml
 ```
 
-### MacOS
+**MacOS**
 1. 自動起動設定用のファイルを作成します
 
 以下のコマンドで自動起動用の設定ファイルが作成できます．
 ```
-canis init --start /path/to/unitfile --binary /path/to/canis/binary --daemon_out /path/to/stdout/logfile--daemon_err /path/to/stderr/logfile
+canis init --start /path/to/unitfile --binary /path/to/canis/binary --daemon_out /path/to/stdout/logfile --daemon_err /path/to/stderr/logfile
 ```
 それぞれの引数は以下の項目を設定しています．
 - `start`: ユニットファイルの配置場所
@@ -520,6 +635,77 @@ canis init --start /path/to/unitfile --binary /path/to/canis/binary --daemon_out
 ```
 launchctl load ~/Library/LaunchAgents/com.canis.start.plist
 ```
+
+#### 証跡公開の自動定期実行
+**Linux**
+1. 定期実行設定用のファイルを作成します
+
+以下のコマンドでユニットファイルが作成できます．
+```
+canis init --publish /path/to/unitfile --binary /path/to/canis/binary
+```
+それぞれの引数は以下の項目を設定しています．
+- `publish`: timer ファイルのパス
+- `binary`: canis のバイナリの配置場所
+
+2. systemd の設定を再読み込みしてください
+
+1 で作成した定期実行用の設定ファイルを読み込む必要があるため，以下のコマンドを実行します．
+```
+systemctl --user daemon-reload
+```
+3. canis publish が定期実行されるよう設定します
+
+以下のコマンドで指定した時刻に証跡公開が自動で実行されるようになります．
+```
+systemctl --user enable canis-publish.service
+systemctl --user start canis-publish.service
+```
+
+**Windows**
+1. 証跡公開の自動定期実行用のファイルを作成します．
+
+以下のコマンドによって定期実行用の設定 xml ファイルが作成できます．
+```
+canis init --publish /path/to/unitfile --binary /path/to/canis/binary
+```
+それぞれの引数は以下の項目を設定しています．
+- `publish`: 定期実行設定ファイルのパス
+- `binary`: canis のバイナリの配置場所
+
+2. 定期実行のためのタスク定義をスケジューラに登録します
+
+作成した設定ファイルを利用して，自動定期実行をスケジューラに登録します．
+以下に登録するためのコマンド例を示します．ここでは，設定ファイルがデフォルトの配置場所にある例を示しています．
+```
+$ schtasks /create /tn "CanisDailyPublish" /xml "C:\Users\<user>\AppData\Roaming\canis\config\canis-publish.xml"
+```
+
+以下のコマンドで登録したタスクの情報が表示されれば完了しています．
+```
+$ schtasks /query /tn "CanisDailyPublish"
+```
+
+**MacOS**
+1. 証跡公開の自動定期実行用のファイルを作成します．
+
+以下のコマンドで自動起動用の設定ファイルが作成できます．
+```
+canis init --publish /path/to/unitfile --binary /path/to/canis/binary --daemon_out /path/to/stdout/logfile --daemon_err /path/to/stderr/logfile
+```
+それぞれの引数は以下の項目を設定しています．
+- `publish`: 定期実行設定ファイルのパス
+- `binary`: canis のバイナリの配置場所
+- `daemon_out`: 標準出力用のログファイルの配置場所
+- `daemon_err`: 標準エラー出力用のログファイルの配置場所
+
+2. 証跡公開が自動で定期実行されるよう設定します
+
+以下のコマンドで自動起動用の設定を読み込み，自動起動を有効化します．
+```
+launchctl load ~/Library/LaunchAgents/com.canis.publish.plist
+```
+
 
 # For Developers
 ## システム構成
@@ -539,13 +725,18 @@ launchctl load ~/Library/LaunchAgents/com.canis.start.plist
    - LLM: MCP ホストから説明作成依頼を取得し，説明を作成する．また，説明作成に必要な情報を取得するために tool に必要な情報を MCP ホストに送信する．
 
 ## インタフェース
-File Access Monitor から Level Converter および， Level Converter から Digest Generator は以下のインタフェースに基づいたメッセージが通知される．
+File Access Monitor から Level Converter および， Level Converter から Digest Generator のインタフェースとして，以下の2種類の情報を1イベントとしています．
+ - ファイル操作に関する情報
+ - ファイル操作時のプロセスに関する情報
+
+このうち，ファイル操作に関しては以下のようなレベルに区別しています．
  - レベル1
-   - create(filepath,time)
-   - modify(filepath,time)
+   - create(uri, time)
+   - modify(uri, time)
  - レベル2
-   - move(filepath1, filepath2,time)
+   - move(src_uri, dst_uri, time)
  - レベル3
-   - open(filepath,pid,time)
-   - write(filepath,content,time)
-   - append(filepath, content,time)
+   - open(uri, pid, time)
+   - write(uri, content, time)
+   - append(uri,  content, time)
+また，プロセス情報については FUSE を利用して監視している際は取得できますが，notify で監視している場合は取得できません．

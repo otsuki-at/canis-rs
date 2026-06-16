@@ -57,7 +57,7 @@ canis によって収集した証跡から，論文についてその論文中�
 
 ## Usage
 論文内の図や表についての説明を作成する際の手順の例を以下に説明します．
-手順2〜5において LLM に送信するプロンプトの具体例は，[examples/generate_explain_prompt.md](./examples/generate_explain_prompt.md) にまとめています。
+手順2〜5において LLM に送信するプロンプトの具体例は，[examples/generate_explain_prompt.md](./examples/generate_explain_prompt.md) にまとめています．
 
 1. 論文の図や表の位置にコメントとして，作成用のスクリプトやプログラムのファイル名を記載しておきます．  
 LLM に原稿の内容を確認させる際，図や表をどのようなスクリプトやプログラムで作成したかを理解できるようにするために記載します．
